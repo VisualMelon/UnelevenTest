@@ -1,0 +1,16 @@
+shaderfile MiniCube.fx
+
+tech dull
+vertex PC
+pass vs_4_0 VShade ps_4_0 PShade
+end tech
+
+tech dull2
+vertex PC
+pass vs_4_0 VShade2 ps_4_0 PShade2
+end tech
+
+tech simpleTex_alpha
+vertex PCT
+pass vs_4_0 VShade_Tex ps_4_0 PShade_Tex_Alpha
+end tech

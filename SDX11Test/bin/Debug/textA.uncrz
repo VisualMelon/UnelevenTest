@@ -1,0 +1,110 @@
+// booooring
+
+anim map_idle
+model map
+
+flow 0
+
+motion a
+noupdate
+duration 10000
+end motion
+
+end flow
+
+end anim
+
+
+anim tree0_idle
+model tree0
+
+flow 0
+
+motion a
+noupdate
+duration 10000
+end motion
+
+end flow
+
+end anim
+
+
+anim clouds_idle
+model clouds
+
+flow 0
+
+motion a
+noupdate
+duration 10000
+end motion
+
+end flow
+
+end anim
+
+
+// anubis
+anim anubis_idle
+model anubis
+
+flow 0
+
+motion a
+a offset one 0 0 0
+duration 1
+end motion
+
+motion b
+noupdate
+duration 10000
+end motion
+
+end flow
+
+end anim
+
+
+anim anubis_spin
+model anubis
+
+flow 0
+
+motion a
+a rotate one 0 0.1 0
+duration 10000
+end motion
+
+end flow
+
+end anim
+
+
+anim anubis_die
+model anubis
+
+flow 0
+
+motion a
+noupdate
+duration 30
+end motion
+
+motion b
+a offset_smth0 one 0 20 0x
+duration 250
+end motion
+
+end flow
+
+flow 1
+
+motion c
+a colmod one 0 0 0 0
+duration 100
+end motion
+
+end flow
+
+end anim

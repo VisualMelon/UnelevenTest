@@ -1,0 +1,68 @@
+// sprites here
+
+sprite fire
+
+shader_dx9 un_shade.fx
+technique sprite_fire
+technique_light sprite_light
+technique_over over
+
+colmod 1 1 1 1
+texture fire.tga
+lighting none
+alpha add
+sidewisealpha none
+dim 2 3 0
+
+end sprite
+
+
+sprite smoke
+
+shader_dx9 un_shade.fx
+technique sprite_smoke
+technique_light sprite_light
+technique_over over
+
+colmod 1 1 1 1
+texture smoke.tga
+lighting none
+alpha add
+sidewisealpha none
+dim 2 2 0
+
+end sprite
+
+
+sprite laser
+
+shader_dx9 un_shade.fx
+technique sprite_flat
+technique_light sprite_light
+technique_over over
+
+colmod 1 1 1 1
+texture laser.tga
+lighting none
+alpha add
+sidewisealpha none
+dim 0.2 0.2 0.0
+
+end sprite
+
+
+sprite lpoint
+
+shader_dx9 un_shade.fx
+technique sprite_flat
+technique_light sprite_light
+technique_over over
+
+colmod 1 1 1 1
+texture b_ring.tga
+lighting none
+alpha add
+sidewisealpha none
+dim 2 2 0.0
+
+end sprite
