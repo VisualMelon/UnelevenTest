@@ -1507,8 +1507,8 @@ namespace UN11
 					//tech.apply(context); wait for tech
 				}
 				
-				//setTextures(context);
-				//setmats (needs another stupid unsafe constant buffer)
+				setTextures(context);
+				//setmats (TODO: needs another stupid unsafe constant buffer)
 				
 				// pass 0
 				if (ddat.sceneType == SceneType.Light)
@@ -1525,7 +1525,6 @@ namespace UN11
 			}
 		}
 		
-		// TODO: insert this into segment and blend
 		public struct OffRot
 		{
 			public Vector3 offset;
@@ -2100,6 +2099,11 @@ namespace UN11
 				transBuffer = new ConstBuffer<TransCData>(device, TransCData.defaultSlot);
 			}
 			
+			public void apply(DeviceContext context)
+			{
+				transBuffer.applyVStage(context);
+			}
+			
 			public unsafe void setValues(int ttiOffset, TransArr transArr)
 			{
 				setLiteralValues(ttiOffset, transArr.getTransposedArr());
@@ -2139,6 +2143,7 @@ namespace UN11
 			}
 		}
 		
+		// TODO: implement (and section.drawBatched)
 		public class CompoundTransArrBuffer : TransArrBuffer
 		{
 			private int curOffset;
@@ -2617,6 +2622,8 @@ namespace UN11
 				
 				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
 				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
+				
+				transArrBuffer.apply(context);
 				
 				foreach (Section sec in sections)
 				{
@@ -3919,7 +3926,7 @@ namespace UN11
 										vPCs[lpt.index] = ov;
 									}
 									
-									// IMPLEMENT/PORT ME!!
+									// TODO: IMPLEMENT/PORT ME!!
 									//if (!manualNormals)
 									//	autoGenNormals((void*)&vPCs.front(), (short*)&indices.front(), vPCs.size(), indices.size(), VX_PC, nrmVis);
 									
@@ -3936,7 +3943,7 @@ namespace UN11
 										vPCTs[lpt.index] = ov;
 									}
 									
-									// IMPLEMENT/PORT ME!!
+									// TODO: IMPLEMENT/PORT ME!!
 									//if (!manualNormals)
 									//	autoGenNormals((void*)&vPCTs.fron"t(), (short*)&indices.front(), vPCTs.size(), indices.size(), VX_PCT, nrmVis);
 									
@@ -4065,7 +4072,7 @@ namespace UN11
 						{
 							int idx = int.Parse(data[1]);
 							//curSection.mats[idx] = matrices[data[2]];
-							// fix mat
+							// TODO: fix mat
 						}
 						else if (data[0] == "texture")
 						{
@@ -4347,7 +4354,8 @@ namespace UN11
 		
 		public NamedTexture createTexture(string name)
 		{
-			name = "GeneticaMortarlessBlocks.jpg";
+			// TODO: Work out why we can't load my TGAs
+			name = "GeneticaMortarlessBlocks.jpg"; // HACK: insert this instead of whatever was asked for
 			try
 			{
 				
