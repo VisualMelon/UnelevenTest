@@ -4,8 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq.Expressions;
-using System.Runtime.Remoting.Contexts;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
 using SharpDX;
@@ -371,7 +369,8 @@ namespace UN11
 		public enum VertexType
 		{
 			VertexPC,
-			VertexPCT
+			VertexPCT,
+			VertexOver
 		}
 		
 		public enum AlphaMode
@@ -428,6 +427,8 @@ namespace UN11
 					return VertexPC.layoutArr;
 				case VertexType.VertexPCT:
 					return VertexPCT.layoutArr;
+				case VertexType.VertexOver:
+					return VertexOver.layoutArr;
 				default:
 					return null;
 			}
@@ -3788,6 +3789,10 @@ namespace UN11
 							{
 								vertexType = VertexType.VertexPCT;
 							}
+							else if (data[1] == "over")
+							{
+								vertexType = VertexType.VertexOver;
+							}
 						}
 					}
 				}
@@ -4435,7 +4440,9 @@ namespace UN11
 		
 		UN11.ConstBuffer<UN11.EyeCData> eyeBuffer;
 		UN11.View view;
+		UN11.Over over;
 		UN11.ViewDrawData vddat;
+		UN11.OverDrawData oddat;
 		UN11.FrameDrawData fddat;
 		
 		Matrix viewMat;
@@ -4502,9 +4509,11 @@ namespace UN11
 			
 			// describe frame
 			view = new UN11.View(device, "main", uneleven.matrices);
+			over = new UN11.Over(device, "main_over");
 			
 			fddat = new UN11.FrameDrawData();
 			vddat = new UN11.ViewDrawData(view);
+			oddat = new UN11.OverDrawData(over);
 			
 			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(new UN11.Cube(device)));
 			
@@ -4513,7 +4522,10 @@ namespace UN11
 			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
 			
 			uneleven.slides.Add(view);
+			uneleven.slides.Add(over);
+			
 			fddat.slideDrawDatas.Add(vddat);
+			fddat.slideDrawDatas.Add(oddat);
 			
 			/*signature = ShaderSignature.GetInputSignature(vertexShaderByteCode);
 			// Layout from VertexShader input signature
@@ -4670,16 +4682,28 @@ namespace UN11
 				//context.Rasterizer.SetViewport(new Viewport(0, 0, form.ClientSize.Width, form.ClientSize.Height, 0.0f, 1.0f));
 				//context.OutputMerger.SetTargets(depthView, renderView);
 
-				// Setup new projection matrix with correct aspect ratio
+				// set up view with correct aspect ratio
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
 				view.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 100.0f);
-				view.initTarget(renderView);
+				//view.initTarget(renderView);
+				view.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
 				//view.initTarget(context.OutputMerger.GetRenderTargets(1)[0]);
 				view.initSide(device, Format.R32G32B32A32_Float, uneleven.textures);
-				view.initTargetStencil(depthView);
-				//view.initTargetStencil(device);
+				//view.initTargetStencil(depthView);
+				view.initTargetStencil(device);
 				view.initSideStencil(device);
 				view.initOverness(device);
+				view.clearColour = Color.DarkOliveGreen;
+				
+				// set up over
+				over.setDimension(view.texHeight, view.texHeight);
+				over.initOverness(device);
+				over.initTarget(renderView);
+				over.initTargetStencil(depthView);
+				//over.tex = uneleven.textures["view_main"];
+				over.tex = uneleven.textures["GeneticaMortarlessBlocks.jpg"];
+				over.useTex = true;
+				over.tech = uneleven.techniques["simpleOver"];
 				
 				// We are done resizing
 				userResized = false;
@@ -4715,6 +4739,7 @@ namespace UN11
 
 			// Present!
 			swapChain.Present(0, PresentFlags.None);
+			SharpDX.Direct3D11.Resource.ToFile(context, over.targetRenderViewPair.renderView.Resource, ImageFileFormat.Bmp, "main.bmp");
 			
 			form.Text = time.ToString();
 		}
