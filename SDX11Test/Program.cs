@@ -1126,6 +1126,9 @@ namespace UN11
 		{
 			public const int defaultSlot = 2;
 			public const int maxTransMats = 30;
+			
+			[FieldOffsetAttribute(0)]
+			public Matrix mat0;
 		}
 		
 		// models/segments work this out
@@ -1134,6 +1137,9 @@ namespace UN11
 		{
 			public const int defaultSlot = 2;
 			public const int maxSprite4s = 120;
+			
+			[FieldOffsetAttribute(0)]
+			public Vector4 vec0;
 		}
 		
 		[StructLayout(LayoutKind.Sequential)]
@@ -2099,6 +2105,11 @@ namespace UN11
 				transBuffer = new ConstBuffer<TransCData>(device, TransCData.defaultSlot);
 			}
 			
+			public unsafe void update(DeviceContext context)
+			{
+				transBuffer.update(context);
+			}
+			
 			public void apply(DeviceContext context)
 			{
 				transBuffer.applyVStage(context);
@@ -2114,12 +2125,11 @@ namespace UN11
 			/// </summary>
 			public unsafe void setLiteralValue(int tti, ref Matrix mat)
 			{
-				if (tti < 0 || tti > TransCData.maxTransMats)
+				if (tti < 0 || tti >= TransCData.maxTransMats)
 					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
 				
-				fixed (TransCData* tcdPtr = &transBuffer.data)
+				fixed (Matrix* matPtr = &transBuffer.data.mat0)
 				{
-					Matrix* matPtr = (Matrix*)tcdPtr;
 					matPtr[tti] = mat;
 				}
 			}
@@ -2132,9 +2142,8 @@ namespace UN11
 				if (ttiOffet < 0 || ttiOffet + mats.Length > TransCData.maxTransMats)
 					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
 				
-				fixed (TransCData* tcdPtr = &transBuffer.data)
+				fixed (Matrix* matPtr = &transBuffer.data.mat0)
 				{
-					Matrix* matPtr = (Matrix*)tcdPtr;
 					for (int i = 0; i < mats.Length; i++)
 					{
 						matPtr[ttiOffet + i] = mats[i];
@@ -2599,6 +2608,8 @@ namespace UN11
 					seg.update(ref trans, transArr);
 				}
 				
+				transArr.setValue(0, ref trans);
+				
 				transArrBuffer.setValues(0, transArr);
 				
 				modelBox = new BBox();
@@ -2612,7 +2623,7 @@ namespace UN11
 				modelBox.fillVectors();
 			}
 			
-			public void draw(DeviceContext context, GeometryDrawData gdd, DrawData ddat)
+			public void draw(DeviceContext context, GeometryDrawData gddat, DrawData ddat)
 			{
 				if (noCull || modelBox.dothSurviveClipTransformed(ref ddat.eyeBuffer.data.viewProj))
 					goto notOcced;
@@ -2624,6 +2635,7 @@ namespace UN11
 				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
 				
 				transArrBuffer.apply(context);
+				transArrBuffer.update(context);
 				
 				foreach (Section sec in sections)
 				{
@@ -3413,11 +3425,12 @@ namespace UN11
 				updateTargetCData();
 			}
 			
+			// so stuff below can be lazy
 			public void apply(DeviceContext context)
 			{
 				vp.apply(context);
-				eyeBuffer.update(context);
 				eyeBuffer.applyVStage(context);
+				eyeBuffer.update(context);
 			}
 			
 			public void setRenderTarget(DeviceContext context, bool clearDepth, bool clearColor)
