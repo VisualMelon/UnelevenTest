@@ -38,7 +38,7 @@ struct PS_Output
 	float4 col : SV_TARGET;
 };
 
-cbuffer eyeBuffer : register(cb0)
+cbuffer eyeBuffer : register(b0)
 {
 	matrix viewProj;// : packoffset(c0);
 	float4 eyePos;
@@ -47,7 +47,7 @@ cbuffer eyeBuffer : register(cb0)
 	float invFarDepth;
 };
 
-cbuffer lightBuffer : register(cb1)
+cbuffer lightBuffer : register(b1)
 {
 	matrix lightViewProj;
 	float4 lightPos;
@@ -61,28 +61,28 @@ cbuffer lightBuffer : register(cb1)
 
 // lightmap buffer ?
 
-cbuffer transBuffer : register(cb2)
+cbuffer transBuffer : register(b2)
 {
 	matrix transarr[30]; // need to be same as number of segs
 };
 
-cbuffer spriteBuffer : register(cb2)
+cbuffer spriteBuffer : register(b2)
 {
 	float4 spriteLoc[120]; // sprite buffer size must be no more than (this len / size of sprite data)
 };
 
-cbuffer overBuffer : register(cb3)
+cbuffer overBuffer : register(b3)
 {
 	float4 overTexData;
 };
 
-cbuffer targetBuffer : register(cb3)
+cbuffer targetBuffer : register(b3)
 {
 	matrix targetVPMat;
 	float4 targetTexData;
 };
 
-cbuffer sectionBuffer : register(cb4)
+cbuffer sectionBuffer : register(b4)
 {
 	float4 colMod;
 };
@@ -132,16 +132,14 @@ PS_Output PShade(VS_Output inp)
 VS_Output VShade2(VS_Input inp)
 {
 	VS_Output outp = (VS_Output)0;
-	/*if (inp.tti >= 0)
+	if (inp.tti >= 0)
 	{
 		outp.pos = mul(mul(inp.pos, transarr[inp.tti]), viewProj);
 	}
 	else
 	{
 		outp.pos = mul(inp.pos, viewProj);
-	}*/
-	outp.pos = mul(inp.pos, viewProj);
-	//outp.pos = mul(viewProj, inp.pos);
+	}
 	outp.col = inp.col;
 	return outp;
 }
@@ -175,7 +173,7 @@ VS_Output_Tex VShade_Tex(VS_Input_Tex inp)
 PS_Output PShade_Tex_Alpha(VS_Output_Tex inp)
 {
 	PS_Output outp = (PS_Output)0;
-	/*outp.col = inp.col * tex.Sample(linearSampler, inp.txc);
+	outp.col = inp.col * tex.Sample(linearSampler, inp.txc);
 
 	clip(outp.col.w - 0.5);
 
@@ -185,9 +183,9 @@ PS_Output PShade_Tex_Alpha(VS_Output_Tex inp)
 	outp.col = outp.col;
 
 	outp.col *= alphaPreserve;
-	outp.col.w = alphaPreserve;*/
-	outp.col.w = 1;
-	outp.col.g = 1;
+	outp.col.w = alphaPreserve;
+	outp.col.w = 0;
+	/*outp.col.g = 1;*/
 
 	return outp;
 }
