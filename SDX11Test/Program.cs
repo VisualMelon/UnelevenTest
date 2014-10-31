@@ -3795,23 +3795,28 @@ namespace UN11
 		
 		public class FileParsingException : Exception
 		{
+			public string src {get; private set;}
 			public string file {get; private set;}
-			public int line {get; private set;}
+			public int lnum {get; private set;}
+			public string line {get; private set;}
 			public string msg {get; private set;}
 			
-			public FileParsingException(string fileN, int lineN, string msgN) : base(msgN)
+			public FileParsingException(string srcN, string fileN, int lnumN, string lineN, string msgN) : base(msgN + " in " + fileN + " at line " + lnumN + " (\"" + lineN + "\")" + " from " + srcN)
 			{
+				src = srcN;
 				file = fileN;
+				lnum = lnumN;
 				line = lineN;
 				msg = msgN;
 			}
 			
 			public override string ToString()
 			{
-				return string.Format("[FileParsingException File={0}, Line={1}, {2}]", file, line, msg);
+				return base.Message;
 			}
- 
 		}
+		
+		public delegate void FileParsingExceptionThrower(string msg);
 		
 		public void loadTechniquesFromFile(string fileName)
 		{
@@ -3825,10 +3830,18 @@ namespace UN11
 			using (System.IO.StreamReader reader = new System.IO.StreamReader(fileName))
 			{
 				int lnum = 0;
+				string line = "";
+				
+				FileParsingExceptionThrower throwFPE = (msg) =>
+				{
+					throw new FileParsingException("loadTechniquesFromFile", fileName, lnum, line, msg);
+				};
+				
 				while (!reader.EndOfStream)
 				{
 					lnum++;
-					string line = reader.ReadLine();
+					line = reader.ReadLine();
+					
 					int ci = line.IndexOf("//");
 					if (ci != -1)
 						line.Substring(0, ci);
@@ -3851,14 +3864,14 @@ namespace UN11
 						else if (data[0] == "tech")
 						{
 							if (data.Length < 2)
-								throw new FileParsingException(fileName, lnum, "Missing argument after \"texh\" - expected the technique name");
+								throwFPE("Missing argument after \"texh\" - expected the technique name");
 							
 							curName = data[1];
 						}
 						else if (data[0] == "pass")
 						{
 							if (data.Length < 4)
-								throw new FileParsingException(fileName, lnum, "Missing argument after \"pass\" - expected some of form \"pass <vs_version> <vs_name> <ps_version> <ps_name>\"");
+								throwFPE("Missing argument after \"pass\" - expected some of form \"pass <vs_version> <vs_name> <ps_version> <ps_name>\"");
 							
 							psList.Add(new ShaderBytecodeDesc(shaderFileName, data[4], data[3]));
 							vsList.Add(new ShaderBytecodeDesc(shaderFileName, data[2], data[1]));
@@ -3870,7 +3883,7 @@ namespace UN11
 						else if (data[0] == "vertex")
 						{
 							if (data.Length < 2)
-								throw new FileParsingException(fileName, lnum, "Missing argument after \"vertex\" - expected a vertex type");
+								throwFPE("Missing argument after \"vertex\" - expected a vertex type");
 							
 							if (data[1] == "PC")
 							{
@@ -3885,7 +3898,7 @@ namespace UN11
 								vertexType = VertexType.VertexOver;
 							}
 							else
-								throw new FileParsingException(fileName, lnum, "Unrecognised vertex type \"" + data[1] + "\"");
+								throwFPE("Unrecognised vertex type \"" + data[1] + "\"");
 						}
 					}
 				}
@@ -3976,10 +3989,18 @@ namespace UN11
 			using (System.IO.StreamReader reader = new System.IO.StreamReader(fileName))
 			{
 				int lnum = 0;
+				string line = "";
+				
+				FileParsingExceptionThrower throwFPE = (msg) =>
+				{
+					throw new FileParsingException("loadTechniquesFromFile", fileName, lnum, line, msg);
+				};
+				
 				while (!reader.EndOfStream)
 				{
 					lnum++;
-					string line = reader.ReadLine();
+					line = reader.ReadLine();
+					
 					int ci = line.IndexOf("//");
 					if (ci != -1)
 						line.Substring(0, ci);
@@ -4418,7 +4439,7 @@ namespace UN11
 						else if (data[0] == "vertex")
 						{
 							if (data.Length < 2)
-								throw new FileParsingException(fileName, lnum, "Missing argument after \"vertex\" - expected a vertex type");
+								throwFPE("Missing argument after \"vertex\" - expected a vertex type");
 							
 							if (data[1] == "PC")
 							{
@@ -4431,7 +4452,7 @@ namespace UN11
 								curModel.stride = VertexPCT.size;
 							}
 							else
-								throw new FileParsingException(fileName, lnum, "Invalid or unrecognised vertex type \"" + data[1] + "\"");
+								throwFPE("Invalid or unrecognised vertex type \"" + data[1] + "\"");
 							
 							curModel.vertexType = vertexType;
 						}
