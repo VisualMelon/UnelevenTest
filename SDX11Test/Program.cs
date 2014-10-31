@@ -418,6 +418,12 @@ namespace UN11
 			targetTex = 5,
 		}
 		
+		public enum SamplerSlot : int
+		{
+			linearWrap = 0,
+			pointWrap = 1
+		}
+		
 		// vertex decs
 		public static InputElement[] vertexLayoutArr(VertexType vertexType)
 		{
@@ -605,8 +611,6 @@ namespace UN11
 				size = Utilities.SizeOf<VertexPCT>();
 			}
 			
-			[FieldOffset(0)] public VertexPC vpc;
-			
 			[FieldOffset(0)] public Vector3 pos3;
 			[FieldOffset(0)] public Vector4 pos4;
 			[FieldOffset(0)] public float x;
@@ -636,7 +640,10 @@ namespace UN11
 			
 			public VertexPCT(VertexPC vpcN, float tuN, float tvN) : this()
 			{
-				vpc = vpcN;
+				pos4 = vpcN.pos4;
+				nrm4 = vpcN.nrm4;
+				col4 = vpcN.col4;
+				tti = vpcN.tti;
 				
 				tu = tuN;
 				tv = tvN;
@@ -892,7 +899,6 @@ namespace UN11
 			public void apply(DeviceContext context)
 			{
 				context.InputAssembler.InputLayout = layout;
-				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList;
 
 				context.VertexShader.Set(vshade);
 				context.PixelShader.Set(pshade);
@@ -1070,6 +1076,47 @@ namespace UN11
 				wireframeDesc.FillMode = FillMode.Wireframe;
 				wireframe = new AppliableRasterizerState(device, wireframeDesc);
 			}
+		}
+		
+		public class AppliableSamplerState : SamplerState
+		{
+			public AppliableSamplerState(Device device, SamplerStateDescription desc) : base(device, desc)
+			{
+				// joy
+			}
+			
+			public void Apply(DeviceContext context, int slot)
+			{
+				context.PixelShader.SetSampler(slot, this);
+			}
+		}
+		
+		public class SamplerStates
+		{
+			public AppliableSamplerState linearWrap;
+			public AppliableSamplerState pointWrap;
+			
+			public SamplerStates(Device device)
+			{
+				SamplerStateDescription linearWrapDesc = new SamplerStateDescription();
+				linearWrapDesc.AddressU = TextureAddressMode.Wrap;
+				linearWrapDesc.AddressV = TextureAddressMode.Wrap;
+				linearWrapDesc.AddressW = TextureAddressMode.Wrap;
+				linearWrapDesc.Filter = Filter.MinMagMipLinear;
+				linearWrapDesc.BorderColor = Color4.Black;
+				linearWrapDesc.ComparisonFunction = Comparison.Never;
+				linearWrap = new AppliableSamplerState(device, linearWrapDesc);
+				
+				SamplerStateDescription pointWrapDesc = new SamplerStateDescription();
+				pointWrapDesc.AddressU = TextureAddressMode.Wrap;
+				pointWrapDesc.AddressV = TextureAddressMode.Wrap;
+				pointWrapDesc.AddressW = TextureAddressMode.Wrap;
+				pointWrapDesc.Filter = Filter.MinMagMipPoint;
+				pointWrapDesc.BorderColor = Color4.Black;
+				pointWrapDesc.ComparisonFunction = Comparison.Never;
+				pointWrap = new AppliableSamplerState(device, pointWrapDesc);
+			}
+			
 		}
 		
 		// the slide sorts this out
@@ -1398,12 +1445,12 @@ namespace UN11
 			{
 			}
 			
-			public void setAlpha(DeviceContext context, AlphaMode alphaMode)
+			public void setAlpha(DeviceContext context, DrawData ddat, AlphaMode alphaMode)
 			{
 				switch (alphaMode)
 				{
 					case AlphaMode.None:
-						
+						ddat.pddat.uneleven.blendStates.none.apply(context); // or something like this
 						break;
 				}
 			}
@@ -2644,6 +2691,8 @@ namespace UN11
 				}
 			}
 			
+			// TODO: Fix all the buffer creation/filling
+			
 			public unsafe void fillVBuff(DeviceContext context)
 			{
 				if (vertexType == VertexType.VertexPC)
@@ -3160,6 +3209,7 @@ namespace UN11
 				overness.apply(context);
 				foreach (Pass p in tech.passes)
 				{
+					p.apply(context);
 					overness.drawOver(context);
 				}
 			}
@@ -3673,6 +3723,7 @@ namespace UN11
 		public BlendStates blendStates;
 		public DepthStencilStates depthStencilStates;
 		public RasterizerStates rasterizerStates;
+		public SamplerStates samplerStates;
 		
 		public int frames {get; private set;}
 		
@@ -3681,6 +3732,12 @@ namespace UN11
 		public long lastFrameSpan {get; private set;}
 		
 		public Device device {get; private set;}
+		
+		private void setSamplers(DeviceContext context)
+		{
+			samplerStates.linearWrap.Apply(context, (int)SamplerSlot.linearWrap);
+			samplerStates.pointWrap.Apply(context, (int)SamplerSlot.pointWrap);
+		}
 		
 		private void evalTime()
 		{
@@ -3700,6 +3757,8 @@ namespace UN11
 			
 			PreDrawData pddat = new PreDrawData(this);
 			
+			setSamplers(context); // ah, the all important samplers...
+			
 			foreach (SlideDrawData sddat in fddat.slideDrawDatas)
 			{
 				sddat.drawSlide(context, pddat);
@@ -3709,9 +3768,11 @@ namespace UN11
 		public UN11(Device deviceN)
 		{
 			device = deviceN;
+			
 			blendStates = new BlendStates(device);
 			depthStencilStates = new DepthStencilStates(device);
 			rasterizerStates = new RasterizerStates(device);
+			samplerStates = new SamplerStates(device);
 			
 			timing = new Timing();
 			frameSpan = timing.newSpan("frameSpan");
@@ -4525,7 +4586,7 @@ namespace UN11
 			uneleven.slides.Add(over);
 			
 			fddat.slideDrawDatas.Add(vddat);
-			fddat.slideDrawDatas.Add(oddat);
+			//fddat.slideDrawDatas.Add(oddat);
 			
 			/*signature = ShaderSignature.GetInputSignature(vertexShaderByteCode);
 			// Layout from VertexShader input signature
@@ -4645,6 +4706,9 @@ namespace UN11
 			// If Form resized
 			if (userResized)
 			{
+				if (form.ClientSize.Width <= 0 || form.ClientSize.Height <= 0)
+					return;
+				
 				// Dispose all previous allocated resources
 				Utilities.Dispose(ref backBuffer);
 				Utilities.Dispose(ref renderView);
@@ -4685,8 +4749,8 @@ namespace UN11
 				// set up view with correct aspect ratio
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
 				view.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 100.0f);
-				//view.initTarget(renderView);
-				view.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
+				view.initTarget(renderView);
+				//view.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
 				//view.initTarget(context.OutputMerger.GetRenderTargets(1)[0]);
 				view.initSide(device, Format.R32G32B32A32_Float, uneleven.textures);
 				//view.initTargetStencil(depthView);
@@ -4704,6 +4768,7 @@ namespace UN11
 				over.tex = uneleven.textures["GeneticaMortarlessBlocks.jpg"];
 				over.useTex = true;
 				over.tech = uneleven.techniques["simpleOver"];
+				over.clearColour = Color.DeepPink;
 				
 				// We are done resizing
 				userResized = false;
