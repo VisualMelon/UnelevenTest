@@ -25,12 +25,25 @@ struct VS_Input_Tex
 
 struct VS_Output_Tex
 {
-	float4 pos : POSITION0;
+	float4 pos : SV_POSITION;
 	float lit : TEXCOORD3;
 	float4 altPos : TEXCOORD1;
 	float4 col : COLOR0;
 	float2 txc : TEXCOORD0;
 	float4 lmc: TEXCOORD2;
+};
+
+struct VS_Input_Over
+{
+	float4 pos : POSITION0;
+	float2 txc : TEXCOORD0;
+};
+
+struct VS_Output_Over
+{
+	float4 pos : SV_POSITION;
+	float2 txc : TEXCOORD0;
+	float4 altPos : TEXCOORD1;
 };
 
 struct PS_Output
@@ -96,13 +109,12 @@ Texture2D tex3 : register( t4 );
 Texture2D sideTex : register( t5 );
 Texture2D targetTex : register( t5 );
 
-SamplerState linearSampler
-{
-    Filter = MIN_MAG_MIP_LINEAR;
-    AddressU = Wrap;
-    AddressV = Wrap;
-};
+SamplerState linearWrapSampler : register( s0 );
+SamplerState pointWrapSampler : register( s1 );
 
+
+
+// dull shaders
 
 VS_Output VShade(VS_Input inp)
 {
@@ -152,9 +164,33 @@ PS_Output PShade2(VS_Output inp)
 	return outp;
 }
 
+VS_Output_Tex VShade3(VS_Input_Tex inp)
+{
+	VS_Output_Tex outp = (VS_Output_Tex)0;
+	if (inp.tti >= 0)
+	{
+		outp.pos = mul(mul(inp.pos, transarr[inp.tti]), viewProj);
+	}
+	else
+	{
+		outp.pos = mul(inp.pos, viewProj);
+	}
+	outp.col = inp.col;
+	return outp;
+}
+
+PS_Output PShade3(VS_Output_Tex inp)
+{
+	PS_Output outp = (PS_Output)0;
+	outp.col = inp.col * 0.5;// * colMod;
+
+	return outp;
+}
 
 
 
+
+// tex shaders
 
 VS_Output_Tex VShade_Tex(VS_Input_Tex inp)
 {
@@ -173,19 +209,39 @@ VS_Output_Tex VShade_Tex(VS_Input_Tex inp)
 PS_Output PShade_Tex_Alpha(VS_Output_Tex inp)
 {
 	PS_Output outp = (PS_Output)0;
-	outp.col = inp.col * tex.Sample(linearSampler, inp.txc);
+	outp.col = inp.col * tex.Sample(linearWrapSampler, inp.txc);
 
 	clip(outp.col.w - 0.5);
 
 	outp.col = outp.col * colMod;
 	float alphaPreserve = outp.col.w;
 
-	outp.col = outp.col;
-
 	outp.col *= alphaPreserve;
-	outp.col.w = alphaPreserve;
-	outp.col.w = 0;
-	/*outp.col.g = 1;*/
+	outp.col.w = alphaPreserve; // I don't think this makes much sense... but w/e
+
+	return outp;
+}
+
+
+
+
+// side/over shaders
+
+VS_Output_Over VShade_Over(VS_Input_Over inp)
+{
+	VS_Output_Over outp = (VS_Output_Over)0;
+	outp.pos = mul(inp.pos, viewProj);
+	outp.altPos = outp.pos;
+	outp.txc = inp.txc;
+	return outp;
+}
+
+PS_Output PShade_Over(VS_Output_Over inp)
+{
+	PS_Output outp = (PS_Output)0;
+
+	//outp.col = tex.Sample(linearWrapSampler, inp.txc);
+	outp.col = (float4)1;
 
 	return outp;
 }
