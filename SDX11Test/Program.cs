@@ -421,7 +421,9 @@ namespace UN11
 		public enum SamplerSlot : int
 		{
 			linearWrap = 0,
-			pointWrap = 1
+			pointWrap = 1,
+			linearBorder = 2,
+			pointBorder = 3
 		}
 		
 		// vertex decs
@@ -999,21 +1001,21 @@ namespace UN11
 				zNoneDesc.IsDepthEnabled = false;
 				zNoneDesc.IsStencilEnabled = false;
 				zNoneDesc.DepthWriteMask = DepthWriteMask.Zero;
-				zNoneDesc.DepthComparison = Comparison.Less; // meh
+				zNoneDesc.DepthComparison = Comparison.LessEqual; // meh
 				zNone = new AppliableDepthStencilState(device, zNoneDesc);
 				
 				DepthStencilStateDescription zReadWriteDesc = new DepthStencilStateDescription();
 				zReadWriteDesc.IsDepthEnabled = true;
 				zReadWriteDesc.IsStencilEnabled = false;
 				zReadWriteDesc.DepthWriteMask = DepthWriteMask.All;
-				zReadWriteDesc.DepthComparison = Comparison.Less;
+				zReadWriteDesc.DepthComparison = Comparison.LessEqual;
 				zReadWrite = new AppliableDepthStencilState(device, zReadWriteDesc);
 				
 				DepthStencilStateDescription zReadDesc = new DepthStencilStateDescription();
 				zReadDesc.IsDepthEnabled = true;
 				zReadDesc.IsStencilEnabled = false;
 				zReadDesc.DepthWriteMask = DepthWriteMask.Zero;
-				zReadDesc.DepthComparison = Comparison.Less;
+				zReadDesc.DepthComparison = Comparison.LessEqual;
 				zRead = new AppliableDepthStencilState(device, zReadDesc);
 			}
 		}
@@ -1095,6 +1097,8 @@ namespace UN11
 		{
 			public AppliableSamplerState linearWrap;
 			public AppliableSamplerState pointWrap;
+			public AppliableSamplerState linearBorder;
+			public AppliableSamplerState pointBorder;
 			
 			public SamplerStates(Device device)
 			{
@@ -1115,6 +1119,24 @@ namespace UN11
 				pointWrapDesc.BorderColor = Color4.Black;
 				pointWrapDesc.ComparisonFunction = Comparison.Never;
 				pointWrap = new AppliableSamplerState(device, pointWrapDesc);
+				
+				SamplerStateDescription linearBorderDesc = new SamplerStateDescription();
+				linearBorderDesc.AddressU = TextureAddressMode.Border;
+				linearBorderDesc.AddressV = TextureAddressMode.Border;
+				linearBorderDesc.AddressW = TextureAddressMode.Border;
+				linearBorderDesc.Filter = Filter.MinMagMipLinear;
+				linearBorderDesc.BorderColor = Color4.Black;
+				linearBorderDesc.ComparisonFunction = Comparison.Never;
+				linearBorder = new AppliableSamplerState(device, linearBorderDesc);
+				
+				SamplerStateDescription pointBorderDesc = new SamplerStateDescription();
+				pointBorderDesc.AddressU = TextureAddressMode.Border;
+				pointBorderDesc.AddressV = TextureAddressMode.Border;
+				pointBorderDesc.AddressW = TextureAddressMode.Border;
+				pointBorderDesc.Filter = Filter.MinMagMipPoint;
+				pointBorderDesc.BorderColor = Color4.Black;
+				pointBorderDesc.ComparisonFunction = Comparison.Never;
+				pointBorder = new AppliableSamplerState(device, pointBorderDesc);
 			}
 			
 		}
@@ -1433,7 +1455,8 @@ namespace UN11
 		{
 			public Vector4 colMod;
 			
-			public Technique tech;
+			public Technique tech; // plain pass tech
+			public Technique litTech;
 			public Technique lightTech;
 			public Technique decalTech;
 			public Technique dynamicDecalTech;
@@ -1491,7 +1514,7 @@ namespace UN11
 			void drawPrims(DeviceContext context, int batchCount)
 			{
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList; // might want to find a better way of doing this, but we used to pass this to DrawIndexedPrimative, so it can't be too slow
-				context.DrawIndexed(indexCount * batchCount, indexOffset * batchCopies, 0);
+				context.DrawIndexed(triCount * batchCount * 3, indexOffset * batchCopies, 0);
 			}
 			
 			public void update()
@@ -1508,7 +1531,7 @@ namespace UN11
 				{
 					ddat.targetRenderViewPair.apply(context, false, false);
 					ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
-					ddat.pddat.uneleven.rasterizerStates.noBackcull.apply(context);
+					ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
 					drawDraw(context, ddat);
 				}
 				else
@@ -1536,7 +1559,7 @@ namespace UN11
 			
 			public void drawToSide(DeviceContext context, DrawData ddat)
 			{
-				ddat.sideRenderViewPair.apply(context, false, false);
+				ddat.sideRenderViewPair.apply(context, true, true);
 				ddat.targetTex.applyShaderResource(context, (int)TextureSlot.targetTex);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				
@@ -1583,19 +1606,35 @@ namespace UN11
 				setTextures(context);
 				//setmats (TODO: needs another stupid unsafe constant buffer)
 				
-				// pass 0
+				// plain pass
 				if (ddat.sceneType == SceneType.Light)
 					lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
-				else
+				else if (tech != null) // TODO: make this explicit
 					tech.passes[0].apply(context);
+				else
+					goto noPlainPass;
 				
 				drawPrims(context, 1);
 				
-				if (ddat.sceneType == SceneType.View && lightingMode == LightingMode.Full && tech.passes.Count > 1)
+			noPlainPass:
+				
+				if (ddat.sceneType == SceneType.View && lightingMode == LightingMode.Full && litTech != null)
 				{
 					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
 					
-					
+					foreach (Light l in ddat.lights)
+					{
+						if (!l.lightEnabled)
+							continue;
+						
+						l.lightBuffer.update(context);
+						l.lightBuffer.applyVStage(context);
+						l.lightBuffer.applyPStage(context);
+						
+						litTech.passes[(int)l.lightType].apply(context);
+						
+						drawPrims(context, 1);
+					}
 				}
 			}
 		}
@@ -2458,6 +2497,8 @@ namespace UN11
 			
 			public Overness overness;
 			
+			public LightList lights;
+			
 			public DrawData(PreDrawData pddatN, SceneType sceneTypeN)
 			{
 				pddat = pddatN;
@@ -2548,10 +2589,13 @@ namespace UN11
 			public void draw(DeviceContext context, CubeDrawData cddat, DrawData ddat)
 			{
 				ddat.pddat.uneleven.techniques.Get("dull2").passes[0].apply(context);
+				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList;
 				context.InputAssembler.SetVertexBuffers(0, new VertexBufferBinding(vbuff, UN11.VertexPC.size, 0));
 				ddat.targetRenderViewPair.apply(context, false, false);
 				ddat.eyeBuffer.applyVStage(context);
 				ddat.eyeBuffer.update(context);
+				ddat.pddat.uneleven.blendStates.none.apply(context);
+				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
 				
 				context.Draw(36, 0);
@@ -2711,8 +2755,8 @@ namespace UN11
 				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
 				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
 				
-				transArrBuffer.apply(context);
 				transArrBuffer.update(context);
+				transArrBuffer.apply(context);
 				
 				foreach (Section sec in sections)
 				{
@@ -3237,6 +3281,8 @@ namespace UN11
 				
 				// TODO: add alphaModes for overs
 				pddat.uneleven.blendStates.none.apply(context); // or something like this
+				pddat.uneleven.depthStencilStates.zNone.apply(context);
+				pddat.uneleven.rasterizerStates.noBackcull.apply(context);
 				
 				overness.apply(context);
 				foreach (Pass p in tech.passes)
@@ -3287,7 +3333,7 @@ namespace UN11
 		{
 			public View view;
 			public GeometryDrawDataList geometryDrawDatas = new GeometryDrawDataList();
-			public List<Light> lights = new List<Light>();
+			public LightList lights = new LightList();
 			
 			public ViewDrawData(View viewN)
 			{
@@ -3383,6 +3429,7 @@ namespace UN11
 				ddat.sideRenderViewPair = sideRenderViewPair;
 				ddat.overness = overness;
 				ddat.vp = vp;
+				ddat.lights = vddat.lights;
 				
 				targetRenderViewPair.apply(context, true, true);
 				
@@ -3516,16 +3563,6 @@ namespace UN11
 				eyeBuffer.applyVStage(context);
 				eyeBuffer.update(context);
 			}
-			
-			public void setRenderTarget(DeviceContext context, bool clearDepth, bool clearColor)
-			{
-				targetRenderViewPair.apply(context, clearDepth, clearColor);
-			}
-			
-			public void setRenderSide(DeviceContext context, bool clearDepth, bool clearColor)
-			{
-				sideRenderViewPair.apply(context, clearDepth, clearColor);
-			}
 
 			public void dirNormalAt(Vector3 camTarg)
 			{
@@ -3557,18 +3594,21 @@ namespace UN11
 			public int texHeight;
 			
 			public ViewMode viewMode;
+			public LightType lightType;
 			
 			public float projectionNear;
 			public float projectionFar;
 			public float dimX;
 			public float dimY;
+			public float lightDepth;
 			
-			public bool viewEnabled;
+			public bool lightEnabled;
 			
 			public float3 lightPos;
 			public float3 lightDir;
 			public float3 lightUp;
 			public float4 lightAmbient;
+			public float4 lightColMod;
 			
 			public AppliableViewport vp;
 			
@@ -3597,7 +3637,9 @@ namespace UN11
 				lightDir = new Vector3(1f, 0f, 0f);
 				lightUp = new Vector3(0f, 1f, 0f);
 				
-				viewEnabled = true;
+				lightEnabled = true;
+				
+				lightType = LightType.Point;
 				
 				matrices.Set(viewProjVP = new NamedMatrix("view_" + name + "_viewproj"));
 				matrices.Set(viewProjTex = new NamedMatrix("view_" + name + "_viewprojtex"));
@@ -3675,9 +3717,14 @@ namespace UN11
 				{
 					matrix.Transpose(ref viewProjTex.mat, out lightBuffer.data.lightViewProj); // texAligned
 				}
+				
 				lightBuffer.data.lightPos = new Vector4(lightPos, 1.0f);
 				lightBuffer.data.lightDir = new Vector4(lightDir, 1.0f);
 				lightBuffer.data.lightAmbient = lightAmbient;
+				lightBuffer.data.lightColMod = lightColMod;
+				lightBuffer.data.lightDepth = lightDepth;
+				lightBuffer.data.lightCoof = 1.0f; // HACK: are we removing this?
+				lightBuffer.data.lightType = (float)lightType;
 			}
 			
 			private void updateEyeCData()
@@ -3715,6 +3762,7 @@ namespace UN11
 			{
 				updateMats();
 				updateEyeCData(); // must be done after mats
+				updateLightCData();
 				updateLightMapCData();
 			}
 			
@@ -3770,10 +3818,12 @@ namespace UN11
 		
 		public Device device {get; private set;}
 		
-		private void setSamplers(DeviceContext context)
+		private void applySamplers(DeviceContext context)
 		{
 			samplerStates.linearWrap.Apply(context, (int)SamplerSlot.linearWrap);
 			samplerStates.pointWrap.Apply(context, (int)SamplerSlot.pointWrap);
+			samplerStates.linearBorder.Apply(context, (int)SamplerSlot.linearBorder);
+			samplerStates.pointBorder.Apply(context, (int)SamplerSlot.pointBorder);
 		}
 		
 		private void evalTime()
@@ -3794,7 +3844,7 @@ namespace UN11
 			
 			PreDrawData pddat = new PreDrawData(this);
 			
-			setSamplers(context); // ah, the all important samplers...
+			applySamplers(context); // ah, the all important samplers...
 			
 			foreach (SlideDrawData sddat in fddat.slideDrawDatas)
 			{
@@ -3901,7 +3951,7 @@ namespace UN11
 						else if (data[0] == "tech")
 						{
 							if (data.Length < 2)
-								throwFPE("Missing argument after \"texh\" - expected the technique name");
+								throwFPE("Missing argument after \"tech\" - expected the technique name");
 							
 							curName = data[1];
 						}
@@ -4138,10 +4188,11 @@ namespace UN11
 								curModel.createSegmentBoxes();
 								models.Add(curModel);
 								
-								foreach(Section ss in curModel.sections)
-								{
-									ss.indexCount = curModel.numVertices;
-								}
+								// TODO: remove this is nothing has broken
+//								foreach (Section ss in curModel.sections)
+//								{
+//									ss.indexCount = curModel.numVertices;
+//								}
 								
 								iOffs.Clear();
 								lastSegment = null;
@@ -4457,6 +4508,10 @@ namespace UN11
 						{
 							curSection.tech = techniques[data[1]];
 						}
+						else if (data[0] == "technique_lit")
+						{
+							curSection.litTech = techniques[data[1]];
+						}
 						else if (data[0] == "technique_light")
 						{
 							curSection.lightTech = techniques[data[1]];
@@ -4531,8 +4586,7 @@ namespace UN11
 		
 		public NamedTexture createTexture(string name)
 		{
-			// TODO: Work out why we can't load my TGAs
-			name = "GeneticaMortarlessBlocks.jpg"; // HACK: insert this instead of whatever was asked for
+			// TODO: Work out why we can't load my TGAs (seems happy with PNGs)
 			try
 			{
 				
@@ -4594,6 +4648,7 @@ namespace UN11
 		
 		UN11.View view;
 		UN11.Over over;
+		UN11.Light sun;
 		UN11.ViewDrawData vddat;
 		UN11.OverDrawData oddat;
 		UN11.FrameDrawData fddat;
@@ -4660,12 +4715,14 @@ namespace UN11
 			// describe frame
 			view = new UN11.View(device, "main", uneleven.matrices);
 			over = new UN11.Over(device, "main_over");
+			sun = new UN11.Light(device, "sun", uneleven.matrices);
 			
 			fddat = new UN11.FrameDrawData();
 			vddat = new UN11.ViewDrawData(view);
 			oddat = new UN11.OverDrawData(over);
 			
 			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(new UN11.Cube(device)));
+			vddat.lights.Add(sun);
 			
 			UN11.ModelEntity tent = new UN11.ModelEntity(uneleven.models["tree0"], "tent");
 			tent.update(true);
@@ -4858,10 +4915,20 @@ namespace UN11
 				//over.initTargetStencil(depthView);
 				view.initTargetStencil(device);
 				over.tex = uneleven.textures["view_main"];
-				//over.tex = uneleven.textures["GeneticaMortarlessBlocks.jpg"];
 				over.useTex = true;
 				over.tech = uneleven.techniques["simpleOver"];
 				over.clearColour = Color.DeepPink;
+				
+				// set up sun
+				sun.useLightMap = false;
+				sun.lightType = UN11.LightType.Point;
+				sun.dimX = 50;
+				sun.dimY = 50;
+				sun.lightDepth = 50;
+				sun.lightAmbient = new Vector4(0.5f, 0.5f, 0.5f, 0.5f);
+				sun.lightColMod = new Vector4(1, 1, 1, 10);
+				sun.lightPos = new Vector3(0, 10, 5);
+				sun.lightEnabled = true;
 				
 				// We are done resizing
 				userResized = false;
@@ -4891,6 +4958,7 @@ namespace UN11
 			
 			// TODO: work out an UN11.updateAll() method or something, perhaps
 			view.update();
+			sun.update();
 
 
 			uneleven.drawFrame(context, fddat);
