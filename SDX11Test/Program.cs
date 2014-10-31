@@ -1366,12 +1366,14 @@ namespace UN11
 				overBuffer = new ConstBuffer<OverCData>(device, OverCData.defaultSlot);
 				overBuffer.data.texData = texData;
 				
-				// might not need to do this any more
-				for (int i = 0; i < 4; i++) // do ahead of shader
+				
+				// might not need to do this any more -- looks like we don't! ty DX10 team
+				// TODO: work out what else we don't need (i.e. all the stuff above with stupid divisions and stuff? - maybe leave it for DX9/OGL shaders? not like we need anything /more/ and float4 is a tidy sum (this is good idea))
+				/*for (int i = 0; i < 4; i++) // do ahead of shader
 				{
 					overVerts[i].tu += texData.X;
 					overVerts[i].tv += texData.Y;
-				}
+				}*/
 				
 				overVBuff = Buffer.Create(device, BindFlags.VertexBuffer, overVerts);
 				
@@ -4638,7 +4640,7 @@ namespace UN11
 			uneleven.slides.Add(over);
 			
 			fddat.slideDrawDatas.Add(vddat);
-			//fddat.slideDrawDatas.Add(oddat);
+			fddat.slideDrawDatas.Add(oddat);
 			
 			/*signature = ShaderSignature.GetInputSignature(vertexShaderByteCode);
 			// Layout from VertexShader input signature
@@ -4804,8 +4806,8 @@ namespace UN11
 				// set up view with correct aspect ratio
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
 				view.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 100.0f);
-				view.initTarget(renderView);
-				//view.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
+				//view.initTarget(renderView);
+				view.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
 				//view.initTarget(context.OutputMerger.GetRenderTargets(1)[0]);
 				view.initSide(device, Format.R32G32B32A32_Float, uneleven.textures);
 				//view.initTargetStencil(depthView);
@@ -4815,12 +4817,13 @@ namespace UN11
 				view.clearColour = Color.DarkOliveGreen;
 				
 				// set up over
-				over.setDimension(view.texHeight, view.texHeight);
+				over.setDimension(view.texWidth, view.texHeight);
 				over.initOverness(device);
 				over.initTarget(renderView);
-				over.initTargetStencil(depthView);
-				//over.tex = uneleven.textures["view_main"];
-				over.tex = uneleven.textures["GeneticaMortarlessBlocks.jpg"];
+				//over.initTargetStencil(depthView);
+				view.initTargetStencil(device);
+				over.tex = uneleven.textures["view_main"];
+				//over.tex = uneleven.textures["GeneticaMortarlessBlocks.jpg"];
 				over.useTex = true;
 				over.tech = uneleven.techniques["simpleOver"];
 				over.clearColour = Color.DeepPink;
@@ -4851,6 +4854,7 @@ namespace UN11
 			view.camPos = span;
 			view.dirNormalAt(Vector3.Zero);
 			
+			// TODO: work out an UN11.updateAll() method or something, perhaps
 			view.update();
 
 
@@ -4859,7 +4863,7 @@ namespace UN11
 
 			// Present!
 			swapChain.Present(0, PresentFlags.None);
-			SharpDX.Direct3D11.Resource.ToFile(context, over.targetRenderViewPair.renderView.Resource, ImageFileFormat.Bmp, "main.bmp");
+			//SharpDX.Direct3D11.Resource.ToFile(context, over.targetRenderViewPair.renderView.Resource, ImageFileFormat.Bmp, "main.bmp");
 			
 			form.Text = time.ToString();
 		}
