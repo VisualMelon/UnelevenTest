@@ -947,7 +947,7 @@ namespace UN11
 			public BlendStates(Device device)
 			{
 				BlendStateDescription noneDesc = new BlendStateDescription();
-				noneDesc.RenderTarget[0].IsBlendEnabled = false;
+				noneDesc.RenderTarget[0] = new RenderTargetBlendDescription(false, /*don't care -->*/ BlendOption.One, BlendOption.One, BlendOperation.Add, BlendOption.Zero, BlendOption.One, BlendOperation.Add /*<-- don't care*/, ColorWriteMaskFlags.All);
 				none = new AppliableBlendState(device, noneDesc);
 				
 				
@@ -1210,7 +1210,7 @@ namespace UN11
 		[StructLayout(LayoutKind.Sequential)]
 		public struct SectionCData
 		{
-			public const int defaultSlot = 3;
+			public const int defaultSlot = 4;
 			
 			public float4 colMod;
 		}
@@ -1447,6 +1447,7 @@ namespace UN11
 			{
 			}
 			
+			// TODO: work out if this still needs to exist
 			public void setAlpha(DeviceContext context, DrawData ddat, AlphaMode alphaMode)
 			{
 				switch (alphaMode)
@@ -1478,15 +1479,24 @@ namespace UN11
 			
 			public bool curDrawCull;
 			
+			public ConstBuffer<SectionCData> sectionBuffer;
+			
 			public Section(Device device, string nameN) : base(device)
 			{
 				name = nameN;
+				
+				sectionBuffer = new ConstBuffer<SectionCData>(device, SectionCData.defaultSlot);
 			}
 			
 			void drawPrims(DeviceContext context, int batchCount)
 			{
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList; // might want to find a better way of doing this, but we used to pass this to DrawIndexedPrimative, so it can't be too slow
 				context.DrawIndexed(indexCount * batchCount, indexOffset * batchCopies, 0);
+			}
+			
+			public void update()
+			{
+				sectionBuffer.data.colMod = colMod;
 			}
 			
 			public void draw(DeviceContext context, DrawData ddat)
@@ -1541,9 +1551,9 @@ namespace UN11
 //				ddat.targetRenderViewPair.apply(context, false, false);
 //				ddat.eyeBuffer.applyVStage(context);
 //				ddat.eyeBuffer.update(context);
-//				
+//
 //				drawPrims(context, 1);
-//				
+//
 //				return;
 				
 				// enabled clip
@@ -1563,6 +1573,13 @@ namespace UN11
 					//tech.apply(context); wait for tech
 				}
 				
+				sectionBuffer.update(context);
+				
+				sectionBuffer.applyVStage(context);
+				sectionBuffer.applyPStage(context);
+				
+				ddat.pddat.uneleven.blendStates.none.apply(context);
+				
 				setTextures(context);
 				//setmats (TODO: needs another stupid unsafe constant buffer)
 				
@@ -1576,6 +1593,8 @@ namespace UN11
 				
 				if (ddat.sceneType == SceneType.View && lightingMode == LightingMode.Full && tech.passes.Count > 1)
 				{
+					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
+					
 					
 				}
 			}
@@ -2452,7 +2471,7 @@ namespace UN11
 			public abstract void drawGeometry(DeviceContext context, DrawData ddat);
 		}
 		
-		public class GeometryDrawDataCollection : List<GeometryDrawData>
+		public class GeometryDrawDataList : List<GeometryDrawData>
 		{
 		}
 		
@@ -2651,6 +2670,13 @@ namespace UN11
 			
 			public void update(ref Matrix trans, bool forceUpdate = false)
 			{
+				// update sections
+				foreach (Section sec in sections)
+				{
+					sec.update();
+				}
+				
+				// build transarr / update segments
 				foreach (Segment seg in segments)
 				{
 					if (forceUpdate)
@@ -2662,6 +2688,7 @@ namespace UN11
 				
 				transArrBuffer.setValues(0, transArr);
 				
+				// sort out bounding boxes
 				modelBox = new BBox();
 				
 				foreach (Segment seg in allSegs)
@@ -2884,17 +2911,17 @@ namespace UN11
 //				if (vertexType == VertexType.VertexPCT)
 //					fillVBuffPCT(context);
 //			}
-//			
+//
 //			private unsafe void fillVBuffPC(DeviceContext context)
 //			{
 //				DataStream dstream;
 //				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
-//				
+//
 //				byte* buffPtr = (byte*)dstream.DataPointer;
 //				fixed (VertexPC* vertexPtrVPC = verticesPC)
 //				{
 //					byte* verticesPtr = (byte*)vertexPtrVPC;
-//					
+//
 //					if (batchCopies == 1)
 //					{
 //						Utils.copy(verticesPtr, buffPtr, numVertices * stride);
@@ -2908,7 +2935,7 @@ namespace UN11
 //						{
 //							byte* copyPtr = (byte*)buffPtr + i * numVertices * stride;
 //							Utils.copy(copyPtr, buffPtr, numVertices * stride);
-//							
+//
 //							// sort out ttiOffset for batch copies
 //							if (i > 0)
 //							{
@@ -2923,20 +2950,20 @@ namespace UN11
 //						}
 //					}
 //				}
-//				
+//
 //				context.UnmapSubresource(vbuff, 0);
 //			}
-//			
+//
 //			private unsafe void fillVBuffPCT(DeviceContext context)
 //			{
 //				DataStream dstream;
 //				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
-//				
+//
 //				byte* buffPtr = (byte*)dstream.DataPointer;
 //				fixed (VertexPCT* vertexPtrVPCT = verticesPCT)
 //				{
 //					byte* verticesPtr = (byte*)vertexPtrVPCT;
-//					
+//
 //					if (true || batchCopies == 1)
 //					{
 //						Utils.copy(verticesPtr, buffPtr, numVertices * stride);
@@ -2950,7 +2977,7 @@ namespace UN11
 //						{
 //							byte* copyPtr = (byte*)buffPtr + i * numVertices * stride;
 //							Utils.copy(copyPtr, buffPtr, numVertices * stride);
-//							
+//
 //							// sort out ttiOffset for batch copies
 //							if (i > 0)
 //							{
@@ -2965,44 +2992,44 @@ namespace UN11
 //						}
 //					}
 //				}
-//				
+//
 //				context.UnmapSubresource(vbuff, 0);
 //			}
-//			
+//
 //			public void createVBuff(Device device, DeviceContext context, VertexPC[] vPCs, VertexPCT[] vPCTs /*add formats here as appropriate, hope there arn't too many*/)
 //			{
 //				if (vertexType == VertexType.VertexPC)
 //				{
 //					vbuff = new Buffer(device, new BufferDescription(numVertices * VertexPC.size * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
-//					
+//
 //					vbuffBinding = new VertexBufferBinding(vbuff, UN11.VertexPC.size, 0);
-//					
+//
 //					verticesPC = new VertexPC[vPCs.Length];
 //					Utils.copy<VertexPC>(0, vPCs, 0, verticesPC, vPCs.Length);
 //				}
 //				else if (vertexType == VertexType.VertexPCT)
 //				{
 //					vbuff = new Buffer(device, new BufferDescription(numVertices * VertexPCT.size * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
-//					
+//
 //					vbuffBinding = new VertexBufferBinding(vbuff, UN11.VertexPCT.size, 0);
-//					
+//
 //					verticesPCT = new VertexPCT[vPCTs.Length];
 //					Utils.copy<VertexPCT>(0, vPCTs, 0, verticesPCT, vPCTs.Length);
 //				}
-//				
+//
 //				fillVBuff(context);
 //			}
-//			
+//
 //			public unsafe void fillIBuff(DeviceContext context)
 //			{
 //				DataStream dstream;
 //				context.MapSubresource(ibuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
-//				
+//
 //				byte* buffPtr = (byte*)dstream.DataPointer;
 //				fixed (short* indicesPtrShort = indices)
 //				{
 //					byte* indicesPtr = (byte*)indicesPtrShort;
-//					
+//
 //					if (true || batchCopies == 1)
 //					{
 //						Utils.copy(indicesPtr, buffPtr, numIndices * sizeof(short));
@@ -3021,11 +3048,11 @@ namespace UN11
 //								byte* copyPtr = secPtr + i * sec.triCount * 3 * sizeof (short);
 //								Utils.copy(indicesPtr + sec.indexOffset, copyPtr, sec.triCount * 3 * sizeof (short));
 //								//Utils.copy(copyPtr, indicesPtr + sec.indexOffset, sec.triCount * 3 * sizeof (short)); // is this the wrong way round??
-//								
+//
 //								if (i > 0)
 //								{
 //									idxOffset += numVertices;
-//									
+//
 //									short* idxs = (short*)copyPtr;
 //									for (int j = 0; j < sec.triCount * 3; j++)
 //									{
@@ -3036,17 +3063,17 @@ namespace UN11
 //						}
 //					}
 //				}
-//				
+//
 //				context.UnmapSubresource(ibuff, 0);
 //			}
-//			
+//
 //			public void createIBuff(Device device, DeviceContext context, short[] ids)
 //			{
 //				ibuff = new Buffer(device, new BufferDescription(numIndices * sizeof (short) * batchCopies, ResourceUsage.Dynamic, BindFlags.IndexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
-//				
+//
 //				indices = new short[ids.Length];
 //				Utils.copy<short>(0, ids, 0, indices, ids.Length);
-//				
+//
 //				fillIBuff(context);
 //			}
 		}
@@ -3128,7 +3155,7 @@ namespace UN11
 			}
 		}
 		
-		public class SlideDrawDataCollection : List<SlideDrawData>
+		public class SlideDrawDataList : List<SlideDrawData>
 		{
 		}
 		
@@ -3208,6 +3235,9 @@ namespace UN11
 				targetRenderViewPair.apply(context, true, true);
 				setTextures(context);
 				
+				// TODO: add alphaModes for overs
+				pddat.uneleven.blendStates.none.apply(context); // or something like this
+				
 				overness.apply(context);
 				foreach (Pass p in tech.passes)
 				{
@@ -3256,7 +3286,8 @@ namespace UN11
 		public class ViewDrawData : SlideDrawData
 		{
 			public View view;
-			public GeometryDrawDataCollection geometryDrawDatas = new GeometryDrawDataCollection();
+			public GeometryDrawDataList geometryDrawDatas = new GeometryDrawDataList();
+			public List<Light> lights = new List<Light>();
 			
 			public ViewDrawData(View viewN)
 			{
@@ -3506,7 +3537,7 @@ namespace UN11
 		public class LightDrawData : SlideDrawData
 		{
 			public Light light;
-			public GeometryDrawDataCollection geometryDrawDatas = new GeometryDrawDataCollection();
+			public GeometryDrawDataList geometryDrawDatas = new GeometryDrawDataList();
 			
 			public LightDrawData(Light lightN)
 			{
@@ -3707,10 +3738,14 @@ namespace UN11
 			}
 		}
 		
+		public class LightList : List<Light>
+		{
+		}
+		
 		// stuff for external stuff to throw at internal stuff
 		public class FrameDrawData
 		{
-			public SlideDrawDataCollection slideDrawDatas = new UN11.SlideDrawDataCollection();
+			public SlideDrawDataList slideDrawDatas = new UN11.SlideDrawDataList();
 		}
 		
 		// UN11ness
