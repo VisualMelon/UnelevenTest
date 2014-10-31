@@ -3793,6 +3793,26 @@ namespace UN11
 			return createTechnique(name, vertexTypeN, new ShaderBytecodeDesc[] { vshadeDescN }, new ShaderBytecodeDesc[] { pshadeDescN });
 		}
 		
+		public class FileParsingException : Exception
+		{
+			public string file {get; private set;}
+			public int line {get; private set;}
+			public string msg {get; private set;}
+			
+			public FileParsingException(string fileN, int lineN, string msgN) : base(msgN)
+			{
+				file = fileN;
+				line = lineN;
+				msg = msgN;
+			}
+			
+			public override string ToString()
+			{
+				return string.Format("[FileParsingException File={0}, Line={1}, {2}]", file, line, msg);
+			}
+ 
+		}
+		
 		public void loadTechniquesFromFile(string fileName)
 		{
 			VertexType vertexType = VertexType.VertexPC;
@@ -3804,8 +3824,10 @@ namespace UN11
 			
 			using (System.IO.StreamReader reader = new System.IO.StreamReader(fileName))
 			{
+				int lnum = 0;
 				while (!reader.EndOfStream)
 				{
+					lnum++;
 					string line = reader.ReadLine();
 					int ci = line.IndexOf("//");
 					if (ci != -1)
@@ -3828,11 +3850,16 @@ namespace UN11
 						}
 						else if (data[0] == "tech")
 						{
-							// etc. tech simpleTech vs_0_0 vs_simple ps_4_0 ps_simple
+							if (data.Length < 2)
+								throw new FileParsingException(fileName, lnum, "Missing argument after \"texh\" - expected the technique name");
+							
 							curName = data[1];
 						}
 						else if (data[0] == "pass")
 						{
+							if (data.Length < 4)
+								throw new FileParsingException(fileName, lnum, "Missing argument after \"pass\" - expected some of form \"pass <vs_version> <vs_name> <ps_version> <ps_name>\"");
+							
 							psList.Add(new ShaderBytecodeDesc(shaderFileName, data[4], data[3]));
 							vsList.Add(new ShaderBytecodeDesc(shaderFileName, data[2], data[1]));
 						}
@@ -3842,6 +3869,9 @@ namespace UN11
 						}
 						else if (data[0] == "vertex")
 						{
+							if (data.Length < 2)
+								throw new FileParsingException(fileName, lnum, "Missing argument after \"vertex\" - expected a vertex type");
+							
 							if (data[1] == "PC")
 							{
 								vertexType = VertexType.VertexPC;
@@ -3854,6 +3884,8 @@ namespace UN11
 							{
 								vertexType = VertexType.VertexOver;
 							}
+							else
+								throw new FileParsingException(fileName, lnum, "Unrecognised vertex type \"" + data[1] + "\"");
 						}
 					}
 				}
@@ -3943,8 +3975,10 @@ namespace UN11
 			
 			using (System.IO.StreamReader reader = new System.IO.StreamReader(fileName))
 			{
+				int lnum = 0;
 				while (!reader.EndOfStream)
 				{
+					lnum++;
 					string line = reader.ReadLine();
 					int ci = line.IndexOf("//");
 					if (ci != -1)
@@ -4383,6 +4417,9 @@ namespace UN11
 						}
 						else if (data[0] == "vertex")
 						{
+							if (data.Length < 2)
+								throw new FileParsingException(fileName, lnum, "Missing argument after \"vertex\" - expected a vertex type");
+							
 							if (data[1] == "PC")
 							{
 								vertexType = VertexType.VertexPC;
@@ -4393,6 +4430,9 @@ namespace UN11
 								vertexType = VertexType.VertexPCT;
 								curModel.stride = VertexPCT.size;
 							}
+							else
+								throw new FileParsingException(fileName, lnum, "Invalid or unrecognised vertex type \"" + data[1] + "\"");
+							
 							curModel.vertexType = vertexType;
 						}
 						else if (data[0] == "rep")
@@ -4492,22 +4532,13 @@ namespace UN11
 		SwapChain swapChain;
 		DeviceContext context;
 		
-		Buffer vertexBuffer;
-		
 		Factory factory;
 		
-		ShaderSignature signature;
-		InputLayout layout;
-		
-		UN11.ConstBuffer<UN11.EyeCData> eyeBuffer;
 		UN11.View view;
 		UN11.Over over;
 		UN11.ViewDrawData vddat;
 		UN11.OverDrawData oddat;
 		UN11.FrameDrawData fddat;
-		
-		Matrix viewMat;
-		Matrix projMat;
 		
 		Stopwatch clock;
 		
@@ -4715,6 +4746,9 @@ namespace UN11
 				Utilities.Dispose(ref depthBuffer);
 				Utilities.Dispose(ref depthView);
 
+				// FIXME: crashes when we try and re-size me, probably a good reason
+				// note that any of the resources disposed above or rebuilt below may be used by slides or geometry
+				
 				// Resize the backbuffer
 				swapChain.ResizeBuffers(desc.BufferCount, form.ClientSize.Width, form.ClientSize.Height, Format.Unknown, SwapChainFlags.None);
 
