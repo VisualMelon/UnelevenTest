@@ -1,5 +1,8 @@
 shaderfile MiniCube.fx
 
+
+// dull techniques
+
 tech dull
 vertex PC
 pass vs_4_0 VShade ps_4_0 PShade
@@ -10,7 +13,23 @@ vertex PC
 pass vs_4_0 VShade2 ps_4_0 PShade2
 end tech
 
+tech dull3
+vertex PCT
+pass vs_4_0 VShade3 ps_4_0 PShade3
+end tech
+
+
+// tex techniques
+
 tech simpleTex_alpha
 vertex PCT
 pass vs_4_0 VShade_Tex ps_4_0 PShade_Tex_Alpha
+end tech
+
+
+// side/over techniques
+
+tech simpleOver
+vertex over
+pass vs_4_0 VShade_Over ps_4_0 PShade_Over
 end tech
