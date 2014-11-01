@@ -1449,6 +1449,24 @@ namespace UN11
 				if (useTex3)
 					tex3.applyShaderResource(context, UN11.TextureSlot.tex3);
 			}
+			
+			public Texness()
+			{
+			}
+			
+			public Texness(Texness gin)
+			{
+				useTex = gin.useTex;
+				tex = gin.tex;
+				useTex0 = gin.useTex0;
+				tex0 = gin.tex0;
+				useTex1 = gin.useTex1;
+				tex1 = gin.tex1;
+				useTex2 = gin.useTex2;
+				tex2 = gin.tex2;
+				useTex3 = gin.useTex3;
+				tex3 = gin.tex3;
+			}
 		}
 		
 		public class Prettyness : Texness
@@ -1466,8 +1484,24 @@ namespace UN11
 			public AlphaMode alphaMode;
 			public LightingMode lightingMode;
 			
-			public Prettyness(Device device)
+			public Prettyness()
 			{
+			}
+			
+			public Prettyness(Prettyness gin) : base(gin)
+			{
+				colMod = gin.colMod;
+				
+				tech = gin.tech; // plain pass tech
+				litTech = gin.litTech;
+				lightTech = gin.lightTech;
+				decalTech = gin.decalTech;
+				dynamicDecalTech = gin.dynamicDecalTech;
+				overTech = gin.overTech;
+				
+				vertexType = gin.vertexType;
+				alphaMode = gin.alphaMode;
+				lightingMode = gin.lightingMode;
 			}
 			
 			// TODO: work out if this still needs to exist
@@ -1498,20 +1532,46 @@ namespace UN11
 			
 			public bool sectionEnabled; // whether it should draw or not
 			
-			public Matrix[] mats;
+			public Matrix[] mats; // TODO: what is this
 			
 			public bool curDrawCull;
 			
 			public ConstBuffer<SectionCData> sectionBuffer;
 			
-			public Section(Device device, string nameN) : base(device)
+			public Section(Device device, string nameN) : base()
 			{
 				name = nameN;
 				
+				createSectionBuffer(device);
+			}
+			
+			public Section(Device device, Section gin) : base(gin)
+			{
+				name = gin.name;
+				
+				batchCopies = gin.batchCopies;
+				indexOffset = gin.indexOffset;
+				triCount = gin.triCount;
+				
+				indexCount = gin.indexCount;
+				
+				drawDecals = gin.drawDecals;
+				acceptDecals = gin.acceptDecals;
+				drawDynamicDecals = gin.drawDynamicDecals;
+			
+				sectionEnabled = gin.sectionEnabled;
+				
+				mats = gin.mats; // TODO: what is this
+				
+				createSectionBuffer(device);
+			}
+			
+			private void createSectionBuffer(Device device)
+			{
 				sectionBuffer = new ConstBuffer<SectionCData>(device, SectionCData.defaultSlot);
 			}
 			
-			void drawPrims(DeviceContext context, int batchCount)
+			private void drawPrims(DeviceContext context, int batchCount)
 			{
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList; // might want to find a better way of doing this, but we used to pass this to DrawIndexedPrimative, so it can't be too slow
 				context.DrawIndexed(triCount * batchCount * 3, indexOffset * batchCopies, 0);
@@ -1520,6 +1580,108 @@ namespace UN11
 			public void update()
 			{
 				sectionBuffer.data.colMod = colMod;
+			}
+			
+			// will lag behind drawDraw, don't worry about it (has a bit of draw as well)
+			public void drawMany(DeviceContext context, DrawData ddat, ManyModelDrawData mmddat, int secIndex)
+			{
+				if (sectionEnabled == false)
+					return;
+				
+				ddat.targetRenderViewPair.apply(context, false, false);
+				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
+				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
+					
+				ddat.eyeBuffer.applyVStage(context);
+				ddat.eyeBuffer.update(context);
+				
+				if (ddat.sceneType == SceneType.Light)
+				{
+					// this should probably actually do the checks
+					ddat.lightMapBuffer.applyVStage(context); // ??
+					ddat.lightMapBuffer.applyPStage(context); // ??
+					ddat.lightMapBuffer.update(context);
+				}
+				else if (ddat.sceneType == SceneType.View)
+				{
+				}
+				
+				if (!mmddat.useOwnSections)
+				{
+					sectionBuffer.update(context);
+					sectionBuffer.applyVStage(context);
+					sectionBuffer.applyPStage(context);
+				}
+				
+				ddat.pddat.uneleven.blendStates.none.apply(context);
+				
+				setTextures(context);
+				//setmats (TODO: needs another stupid unsafe constant buffer)
+				
+				// plain pass
+				if (ddat.sceneType == SceneType.Light)
+					lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
+				else if (tech != null) // TODO: make this explicit
+					tech.passes[0].apply(context);
+				else
+					goto noPlainPass;
+				
+				foreach (Model m in mmddat.models)
+				{
+					if (mmddat.useOwnSections)
+					{
+						Section msec = m.sections[secIndex];
+						if (msec.curDrawCull)
+							continue;
+					
+						msec.sectionBuffer.update(context);
+						msec.sectionBuffer.applyVStage(context);
+						msec.sectionBuffer.applyPStage(context);
+					}
+					
+					m.transArrBuffer.update(context);
+					m.transArrBuffer.apply(context);
+					
+					drawPrims(context, 1);
+				}
+				
+			noPlainPass:
+				
+				if (ddat.sceneType == SceneType.View && lightingMode == LightingMode.Full && litTech != null)
+				{
+					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
+					
+					foreach (Light l in ddat.lights)
+					{
+						if (!l.lightEnabled)
+							continue;
+						
+						l.lightBuffer.update(context);
+						l.lightBuffer.applyVStage(context);
+						l.lightBuffer.applyPStage(context);
+						
+						litTech.passes[(int)l.lightType].apply(context);
+						
+						foreach (Model m in mmddat.models)
+						{
+							if (mmddat.useOwnSections)
+							{
+								Section msec = m.sections[secIndex];
+								if (msec.curDrawCull)
+									continue;
+							
+								msec.sectionBuffer.update(context);
+								msec.sectionBuffer.applyVStage(context);
+								msec.sectionBuffer.applyPStage(context);
+							}
+							
+							m.transArrBuffer.update(context);
+							m.transArrBuffer.apply(context);
+							
+							drawPrims(context, 1);
+						}
+					}
+				}
 			}
 			
 			public void draw(DeviceContext context, DrawData ddat)
@@ -1568,24 +1730,19 @@ namespace UN11
 				drawDraw(context, ddat);
 			}
 			
+			// TODO: consider re-working the how technique/sceneType thing so that draw draw
+			// takes a type of scene or something, and just swaps out the type of tech
+			// (e.g. SceneType.Lit -> use litTech (inc. tech (position 0) like it used to)
+			// and SceneType.Ligt -> use lightTech, etc. etc.)
+			// Would need then a pair for each thing (i.e. main model, decals, dyn decals)
 			public void drawDraw(DeviceContext context, DrawData ddat)
 			{
-//				ddat.pddat.uneleven.techniques.Get("dull2").passes[0].apply(context);
-//				ddat.targetRenderViewPair.apply(context, false, false);
-//				ddat.eyeBuffer.applyVStage(context);
-//				ddat.eyeBuffer.update(context);
-//
-//				drawPrims(context, 1);
-//
-//				return;
-				
-				// enabled clip
-				
 				ddat.eyeBuffer.applyVStage(context);
 				ddat.eyeBuffer.update(context);
 				
 				if (ddat.sceneType == SceneType.Light)
 				{
+					// this should probably actually do the checks (or maybe we don't have to do it, and we let the light do it?)
 					ddat.lightMapBuffer.applyVStage(context); // ??
 					ddat.lightMapBuffer.applyPStage(context); // ??
 					ddat.lightMapBuffer.update(context);
@@ -1912,6 +2069,7 @@ namespace UN11
 
 			public bool dothSurviveClipTransformed(ref Matrix mat)
 			{
+				//return true;
 				Vector4[] vecsA = new Vector4[8];
 
 				// transform bbox
@@ -2494,6 +2652,7 @@ namespace UN11
 			public ConstBuffer<LightMapCData> lightMapBuffer;
 			
 			public AppliableViewport vp;
+			public Matrix viewProjVP; // mostly for good measure
 			
 			public Overness overness;
 			
@@ -2636,7 +2795,7 @@ namespace UN11
 				sections = new List<Section>();
 			}
 			
-			public Model(Model gin, Device device, DeviceContext context) : this(gin.name)
+			public Model(Model gin, Device device, DeviceContext context, bool createOwnSections) : this(gin.name)
 			{
 				foreach (Segment s in gin.allSegs)
 				{
@@ -2648,7 +2807,10 @@ namespace UN11
 				}
 				foreach (Section s in gin.sections)
 				{
-					sections.Add(s);
+					if (createOwnSections)
+						sections.Add(new Section(device, s));
+					else
+						sections.Add(s);
 				}
 				
 				batchCopies = gin.batchCopies;
@@ -2744,11 +2906,11 @@ namespace UN11
 				modelBox.fillVectors();
 			}
 			
-			public void draw(DeviceContext context, GeometryDrawData gddat, DrawData ddat)
+			public void draw(DeviceContext context, DrawData ddat)
 			{
-				if (noCull || modelBox.dothSurviveClipTransformed(ref ddat.eyeBuffer.data.viewProj))
+				if (noCull || modelBox.dothSurviveClipTransformed(ref ddat.viewProjVP))
 					goto notOcced;
-				//return;
+				return;
 				
 			notOcced:
 				
@@ -2764,7 +2926,36 @@ namespace UN11
 				}
 			}
 			
-			// TODO: Fix all the buffer creation/filling
+			public void drawMany(DeviceContext context, ManyModelDrawData mmddat, DrawData ddat)
+			{
+				bool cullall = true;
+				
+				foreach (Model m in mmddat.models)
+				{
+					bool cullm = true; // true means it will be culled
+					
+					if (noCull || m.modelBox.dothSurviveClipTransformed(ref ddat.viewProjVP))
+					{
+						cullm = false;
+						cullall = false;
+					}
+					
+					foreach (Section sec in m.sections)
+						sec.curDrawCull = cullm; // TODO: move this into model?
+				}
+				
+				if (cullall)
+					return;
+				
+				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
+				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
+				
+				// set transArr in Section.drawMany
+				for (int i = 0; i < sections.Count; i++)
+				{
+					sections[i].drawMany(context, ddat, mmddat, i);
+				}
+			}
 			
 			public unsafe void fillVBuff(DeviceContext context)
 			{
@@ -2864,9 +3055,10 @@ namespace UN11
 			{
 				if (vertexType == VertexType.VertexPC)
 				{
-					//vbuff = new Buffer(device, new BufferDescription(numVertices * VertexPC.size * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
-					//vbuff = Buffer.Create(device, BindFlags.VertexBuffer, ref vPCs, numVertices * VertexPC.size * batchCopies, ResourceUsage.Default, CpuAccessFlags.None, ResourceOptionFlags.None, stride);
-					vbuff = Buffer.Create(device, BindFlags.VertexBuffer, vPCs);
+					vbuff = new Buffer(device, new BufferDescription(numVertices * VertexPC.size * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
+					
+//					vbuff = Buffer.Create(device, BindFlags.VertexBuffer, vPCs);
+					
 					vbuffBinding = new VertexBufferBinding(vbuff, UN11.VertexPC.size, 0);
 					
 					verticesPC = new VertexPC[vPCs.Length];
@@ -2874,16 +3066,17 @@ namespace UN11
 				}
 				else if (vertexType == VertexType.VertexPCT)
 				{
-					//vbuff = new Buffer(device, new BufferDescription(numVertices * VertexPCT.size * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
+					vbuff = new Buffer(device, new BufferDescription(numVertices * VertexPCT.size * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
 					
-					vbuff = Buffer.Create(device, BindFlags.VertexBuffer, vPCTs);
+//					vbuff = Buffer.Create(device, BindFlags.VertexBuffer, vPCTs);
+					
 					vbuffBinding = new VertexBufferBinding(vbuff, UN11.VertexPCT.size, 0);
 					
 					verticesPCT = new VertexPCT[vPCTs.Length];
 					Utils.copy<VertexPCT>(0, vPCTs, 0, verticesPCT, vPCTs.Length);
 				}
 				
-				//fillVBuff(context);
+				fillVBuff(context);
 			}
 			
 			public unsafe void fillIBuff(DeviceContext context)
@@ -2898,7 +3091,7 @@ namespace UN11
 				{
 					byte* indicesPtr = (byte*)indicesPtrShort;
 					
-					if (true || batchCopies == 1)
+					if (batchCopies == 1)
 					{
 						Utils.copy(indicesPtr, buffPtr, numIndices * sizeof(short));
 						//Utils.copy(buffPtr, indicesPtr, numIndices * sizeof(short)); // this is the wrong way round!
@@ -2938,14 +3131,14 @@ namespace UN11
 			
 			public void createIBuff(Device device, DeviceContext context, short[] ids)
 			{
-				//ibuff = new Buffer(device, new BufferDescription(numIndices * sizeof (short) * batchCopies, ResourceUsage.Dynamic, BindFlags.IndexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, sizeof(short)));
+				ibuff = new Buffer(device, new BufferDescription(numIndices * sizeof (short) * batchCopies, ResourceUsage.Dynamic, BindFlags.IndexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, sizeof(short)));
 				
-				ibuff = Buffer.Create(device, BindFlags.IndexBuffer, ids);
+//				ibuff = Buffer.Create(device, BindFlags.IndexBuffer, ids);
 				
 				indices = new short[ids.Length];
 				Utils.copy<short>(0, ids, 0, indices, ids.Length);
 				
-				//fillIBuff(context);
+				fillIBuff(context);
 			}
 			
 //			public unsafe void fillVBuff(DeviceContext context)
@@ -3126,6 +3319,10 @@ namespace UN11
 		{
 		}
 		
+		public class ModelList : List<Model>
+		{
+		}
+		
 		public class EntityCollection : NamedCollection<Entity>
 		{
 		}
@@ -3165,9 +3362,9 @@ namespace UN11
 				mdl = mdlN;
 			}
 			
-			public void draw(DeviceContext context, GeometryDrawData gddat, DrawData ddat)
+			public void draw(DeviceContext context, ModelEntityDrawData meddat, DrawData ddat)
 			{
-				mdl.draw(context, gddat, ddat);
+				mdl.draw(context, ddat);
 			}
 			
 			public override void update(bool forceUpdate = false)
@@ -3177,6 +3374,23 @@ namespace UN11
 				Matrix trans = or.transMat;
 				
 				mdl.update(ref trans, forceUpdate);
+			}
+		}
+		
+		public class ManyModelDrawData : GeometryDrawData
+		{
+			public Model mdl;
+			public ModelList models = new ModelList();
+			public bool useOwnSections = true; // if you set this to false, you probably want to be batching
+			
+			public ManyModelDrawData(Model mdlN)
+			{
+				mdl = mdlN;
+			}
+			
+			public override void drawGeometry(DeviceContext context, UN11.DrawData ddat)
+			{
+				mdl.drawMany(context, this, ddat);
 			}
 		}
 		
@@ -3430,6 +3644,7 @@ namespace UN11
 				ddat.overness = overness;
 				ddat.vp = vp;
 				ddat.lights = vddat.lights;
+				ddat.viewProjVP = viewProjVP.mat;
 				
 				targetRenderViewPair.apply(context, true, true);
 				
@@ -4724,9 +4939,24 @@ namespace UN11
 			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(new UN11.Cube(device)));
 			vddat.lights.Add(sun);
 			
-			UN11.ModelEntity tent = new UN11.ModelEntity(uneleven.models["tree0"], "tent");
+			UN11.ModelEntity tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, true), "tent");
 			tent.update(true);
 			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
+			
+			// lots of trees?!
+			Random rnd = new Random();
+			int n = 100;
+			UN11.ManyModelDrawData mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
+			mmddat.useOwnSections = false;
+			for (int i = 0; i < n * n * n / 1000; i++)
+			{
+				tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, false), "tent" + i);
+				tent.or.offset = new Vector3(rnd.Next(n * 2 + 1) - n, rnd.Next(n * 2 + 1) - n, rnd.Next(n * 2 + 1) - n);
+				tent.update(true);
+				mmddat.models.Add(tent.mdl);
+			}
+			vddat.geometryDrawDatas.Add(mmddat);
+			//
 			
 			uneleven.slides.Add(view);
 			uneleven.slides.Add(over);
@@ -4897,7 +5127,7 @@ namespace UN11
 
 				// set up view with correct aspect ratio
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
-				view.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 100.0f);
+				view.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
 				//view.initTarget(renderView);
 				view.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
 				//view.initTarget(context.OutputMerger.GetRenderTargets(1)[0]);
@@ -4926,7 +5156,7 @@ namespace UN11
 				sun.dimY = 50;
 				sun.lightDepth = 50;
 				sun.lightAmbient = new Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-				sun.lightColMod = new Vector4(1, 1, 1, 10);
+				sun.lightColMod = new Vector4(1, 1, 1, 1);
 				sun.lightPos = new Vector3(0, 10, 5);
 				sun.lightEnabled = true;
 				
