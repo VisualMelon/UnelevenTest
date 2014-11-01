@@ -26,6 +26,13 @@ vertex PCT
 pass vs_4_0 VShade_Tex ps_4_0 PShade_Tex_Alpha
 end tech
 
+tech simpleTex_alpha_lit
+vertex PCT
+pass vs_4_0 VShade_Tex_LitOrtho ps_4_0 PShade_Tex_Alpha_LitOrtho
+pass vs_4_0 VShade_Tex_LitPersp ps_4_0 PShade_Tex_Alpha_LitPersp
+pass vs_4_0 VShade_Tex_LitPoint ps_4_0 PShade_Tex_Alpha_LitPoint
+end tech
+
 
 // side/over techniques
 
