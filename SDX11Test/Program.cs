@@ -89,7 +89,7 @@ namespace UN11
 			}
 		}
 		
-		public class NamedTexture : TextureView, INamed
+		public class NamedTexture : TextureView, Named
 		{
 			public string name {get; private set;}
 			
@@ -774,12 +774,12 @@ namespace UN11
 			}
 		}
 		
-		public interface INamed
+		public interface Named
 		{
 			string name {get;}
 		}
 		
-		public abstract class ANamed : INamed
+		public abstract class ANamed : Named
 		{
 			public string name {get; private set;}
 			
@@ -789,7 +789,7 @@ namespace UN11
 			}
 		}
 		
-		public class NamedCollection<T> : System.Collections.IEnumerable where T : class, INamed
+		public class NamedCollection<T> : System.Collections.IEnumerable where T : class, Named
 		{
 			private Dictionary<string, T> items = new Dictionary<string, T>();
 			
@@ -1516,7 +1516,7 @@ namespace UN11
 			}
 		}
 		
-		public class Section : Prettyness, INamed
+		public class Section : Prettyness, Named
 		{
 			public string name {get; private set;}
 			
@@ -3413,6 +3413,208 @@ namespace UN11
 			}
 		}
 		
+		// events
+		public enum EventType : int
+		{
+			tick = 0,
+			mouse = 1,
+			key = 2,
+			cmd = 3,
+			focus = 4
+		}
+		
+		public class EventState
+		{
+			private bool[] keyStates = new bool[255];
+			public EventHandler<FocusEvent> focus {get; private set;}
+			
+			public EventState()
+			{
+				focus = null;
+			}
+			
+			public bool keyDown(Keys k)
+			{
+				return keyStates[(int)k];
+			}
+		}
+		
+		public class EventQueue : Queue<Event>
+		{
+		}
+		
+		public interface Event
+		{
+			EventType type {get;}
+			
+			Event deChild();
+			void enChild(Event e);
+		}
+		
+		public class AEvent : Event
+		{
+			public EventType type {get; private set;}
+			
+			private EventQueue children = null;
+			
+			public Event deChild()
+			{
+				if (children == null || children.Count == 0)
+					return null;
+				
+				return children.Dequeue();
+			}
+			
+			public void enChild(Event e)
+			{
+				if (children == null)
+					children = new EventQueue();
+				
+				children.Enqueue(e);
+			}
+			
+			public AEvent(EventType typeN)
+			{
+				type = typeN;
+			}
+		}
+		
+		public class TickEvent : AEvent
+		{
+			public long time {get; private set;}
+			
+			public TickEvent(long timeN) : base(EventType.tick)
+			{
+				time = timeN;
+			}
+		}
+		
+		public class MouseEvent : AEvent
+		{
+			public MouseEvent() : base(EventType.mouse)
+			{
+				
+			}
+		}
+		
+		public class KeyEvent : AEvent
+		{
+			public KeyEvent() : base(EventType.key)
+			{
+				
+			}
+		}
+		
+		public class CmdEvent : AEvent
+		{
+			public CmdEvent() : base(EventType.cmd)
+			{
+				
+			}
+		}
+		
+		public class FocusEvent : AEvent
+		{
+			public Event underlyingEvent {get; private set;} //?
+			
+			public FocusEvent() : base(EventType.focus)
+			{
+				
+			}
+		}
+		
+		// this is pretty ugly
+		public class EventTypedHandlerCollection : Dictionary<EventType, EventHandler>
+		{
+			public EventTypedHandlerCollection()
+			{
+				Add<TickEvent>(new EventHandlerList<TickEvent>(EventType.tick));
+				Add<MouseEvent>(new EventHandlerList<MouseEvent>(EventType.mouse));
+				Add<KeyEvent>(new EventHandlerList<KeyEvent>(EventType.key));
+				Add<CmdEvent>(new EventHandlerList<CmdEvent>(EventType.cmd));
+			}
+			
+			public void handle(Event e)
+			{
+				this[e.type].handle(e);
+			}
+			
+			public void register<ET>(EventType type, EventHandler<ET> eh) where ET : Event
+			{
+				((EventHandlerList<ET>)this[type]).register(eh);
+			}
+			
+			private void Add<ET>(EventHandlerList<ET> ehl) where ET : Event
+			{
+				Add(ehl.type, ehl);
+			}
+		}
+		
+		public class EventHandlerList<ET> : List<EventHandler<ET>>, EventHandler where ET : Event
+		{
+			public EventType type {get; private set;}
+			
+			public EventHandlerList(EventType typeN)
+			{
+				type = typeN;
+			}
+			
+			public void register(EventHandler<ET> eh)
+			{
+				this.Add(eh);
+			}
+			
+			public void handle(Event e)
+			{
+				foreach (EventHandler<ET> eh in this)
+					eh.handle((ET)e);
+			}
+		}
+		
+		public interface EventHandler
+		{
+			void handle(Event e);
+		}
+		
+		public interface EventHandler<ET> where ET : Event
+		{
+			void handle(ET e);
+		}
+		
+		public class EventManager
+		{
+			private EventQueue due = new EventQueue();
+			private EventTypedHandlerCollection handlers = new EventTypedHandlerCollection();
+			
+			public void queueEvent(Event e)
+			{
+				due.Enqueue(e);
+			}
+			
+			public void register<ET>(EventHandler<ET> eh, EventType type) where ET : Event
+			{
+				handlers.register<ET>(type, eh);
+			}
+			
+			public void handleAllEvents()
+			{
+				while (due.Count > 0)
+					handleEvent(due.Dequeue());
+			}
+			
+			private void handleEvent(Event e)
+			{
+				handlers.handle(e);
+				
+				Event ce;
+				while ((ce = e.deChild()) != null)
+				{
+					handleEvent(ce);
+				}
+			}
+		}
+		
+		// slides
 		public class SlideDrawDataList : List<SlideDrawData>
 		{
 		}
@@ -3426,7 +3628,7 @@ namespace UN11
 		{
 		}
 		
-		public interface Slide : INamed
+		public interface Slide : Named
 		{
 		}
 		
@@ -3437,6 +3639,82 @@ namespace UN11
 			public ASlide(string nameN)
 			{
 				name = nameN;
+			}
+		}
+		
+		public class FaceDrawData : SlideDrawData
+		{
+			public Face face;
+			
+			public FaceDrawData(Face faceN)
+			{
+				face = faceN;
+			}
+			
+			public override void drawSlide(DeviceContext context, PreDrawData pddat)
+			{
+				face.draw(context, this, pddat);
+			}
+		}
+		
+		public class Face : ASlide
+		{
+			public class ElemCollection : NamedCollection<Elem>
+			{
+			}
+			
+			public interface Elem : Named, EventHandler
+			{
+				
+			}
+			
+			public int texWidth;
+			public int texHeight;
+			
+			public NamedTexture targetTex;
+			public RenderViewPair targetRenderViewPair;
+			
+			public Color clearColour
+			{
+				get
+				{
+					return targetRenderViewPair.clearColour;
+				}
+				set
+				{
+					targetRenderViewPair.clearColour = value;
+				}
+			}
+			
+			public Face(Device device, string name) : base(name)
+			{
+				targetRenderViewPair = new UN11.RenderViewPair();
+			}
+			
+			public void draw(DeviceContext context, FaceDrawData oddat, PreDrawData pddat)
+			{
+				targetRenderViewPair.apply(context, true, true);
+				
+			}
+			
+			/// <summary>
+			/// Must be called before you try and init anything else
+			/// </summary>
+			public void setDimension(int texWidthN, int texHeightN)
+			{
+				texWidth = texWidthN;
+				texHeight = texHeightN;
+			}
+			
+			public void initTarget(Device device, Format format, TextureCollection textures)
+			{
+				targetTex = createRenderNamedTexture(device, "face_" + name, texWidth, texHeight, format, out targetRenderViewPair.renderView);
+				textures.Set(targetTex);
+			}
+			
+			public void initTarget(RenderTargetView targetRenderViewN)
+			{
+				targetRenderViewPair.renderView = targetRenderViewN;
 			}
 		}
 		
@@ -3455,7 +3733,7 @@ namespace UN11
 			}
 		}
 		
-		public class Over : Texness, Slide
+		public class Over : Texness, Slide, Named
 		{
 			public string name {get; private set;}
 			
@@ -4025,6 +4303,8 @@ namespace UN11
 		public RasterizerStates rasterizerStates;
 		public SamplerStates samplerStates;
 		
+		public EventManager eventManager = new UN11.EventManager();
+		
 		public int frames {get; private set;}
 		
 		public Timing timing;
@@ -4041,16 +4321,25 @@ namespace UN11
 			samplerStates.pointBorder.Apply(context, (int)SamplerSlot.pointBorder);
 		}
 		
-		private void evalTime()
+		private void tickTime()
 		{
 			frames++;
 			lastFrameSpan = frameSpan.ellapsed;
 			frameSpan.accumulate();
 		}
 		
-		public void eval()
+		private void handleEvents()
 		{
-			evalTime();
+			// queue tick
+			eventManager.queueEvent(new TickEvent(timing.curTime));
+			
+			
+		}
+		
+		public void tick()
+		{
+			tickTime();
+			handleEvents();
 		}
 		
 		public void drawFrame(DeviceContext context, FrameDrawData fddat)
@@ -4951,7 +5240,7 @@ namespace UN11
 			for (int i = 0; i < n * n * n / 1000; i++)
 			{
 				tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, false), "tent" + i);
-				tent.or.offset = new Vector3(rnd.Next(n * 2 + 1) - n, rnd.Next(n * 2 + 1) - n, rnd.Next(n * 2 + 1) - n);
+				tent.or.offset = new Vector3(rnd.NextFloat(-n, n), -20, rnd.NextFloat(-n, n));
 				tent.update(true);
 				mmddat.models.Add(tent.mdl);
 			}
@@ -4963,69 +5252,6 @@ namespace UN11
 			
 			fddat.slideDrawDatas.Add(vddat);
 			fddat.slideDrawDatas.Add(oddat);
-			
-			/*signature = ShaderSignature.GetInputSignature(vertexShaderByteCode);
-			// Layout from VertexShader input signature
-			layout = new InputLayout(device, signature, new[]
-					{
-						new InputElement("POSITION", 0, Format.R32G32B32A32_Float, 0, 0),
-						new InputElement("COLOR", 0, Format.R32G32B32A32_Float, 16, 0)
-					});*/
-
-			// Instantiate Vertex buiffer from vertex data
-			
-			/*vertexBuffer = Buffer.Create(device, BindFlags.VertexBuffer, new UN11.VertexPC[]
-			                             {
-			                             	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)), // Front
-			                             	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-			                             	
-			                             	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)), // BACK
-			                             	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-			                             	
-			                             	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)), // Top
-			                             	new UN11.VertexPC(new Vector4(-1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-			                             	
-			                             	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)), // Bottom
-			                             	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-			                             	
-			                             	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)), // Left
-			                             	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-			                             	
-			                             	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)), // Right
-			                             	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-			                             	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-			                             });
-
-			// Prepare All the stages
-			//context.InputAssembler.InputLayout = layout;
-			//context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList;
-			context.InputAssembler.SetVertexBuffers(0, new VertexBufferBinding(vertexBuffer, UN11.VertexPC.size, 0));
-			//context.VertexShader.Set(vertexShader);
-			//context.PixelShader.Set(pixelShader);
-			uneleven.techniques.Get("dull").passes[0].apply(context);*/
 
 			// Use clock
 			clock = new Stopwatch();
@@ -5186,17 +5412,22 @@ namespace UN11
 			view.camPos = span;
 			view.dirNormalAt(Vector3.Zero);
 			
-			// TODO: work out an UN11.updateAll() method or something, perhaps
+			// REAL STUFF
+			
+			// TODO: work out an UN11.updateAll() method or something, perhaps (I don't think this makes sense)
 			view.update();
 			sun.update();
 
 
+			uneleven.tick();
 			uneleven.drawFrame(context, fddat);
 			
 
 			// Present!
 			swapChain.Present(0, PresentFlags.None);
 			//SharpDX.Direct3D11.Resource.ToFile(context, over.targetRenderViewPair.renderView.Resource, ImageFileFormat.Bmp, "main.bmp");
+
+			// END REAL STUFF
 			
 			form.Text = time.ToString();
 		}
