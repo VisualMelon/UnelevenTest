@@ -4006,6 +4006,7 @@ namespace UN11
 			{
 				name = nameN;
 				targetRenderViewPair = new UN11.RenderViewPair();
+				texness = new Texness();
 			}
 			
 			public void drawOver(DeviceContext context, OverDrawData oddat, PreDrawData pddat)
