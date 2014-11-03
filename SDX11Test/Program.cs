@@ -789,6 +789,7 @@ namespace UN11
 			}
 		}
 		
+		// unordered, fast
 		public class NamedCollection<T> : System.Collections.IEnumerable where T : class, Named
 		{
 			private Dictionary<string, T> items = new Dictionary<string, T>();
@@ -832,11 +833,6 @@ namespace UN11
 				return items.ContainsKey(name);
 			}
 			
-			public bool ContainsItem(T item)
-			{
-				return items.ContainsValue(item);
-			}
-			
 			public T this[string name]
 			{
 				get
@@ -849,9 +845,198 @@ namespace UN11
 				}
 			}
 			
+			public int Count()
+			{
+				return items.Count;
+			}
+			
 			public System.Collections.IEnumerator GetEnumerator()
 			{
 				return items.Values.GetEnumerator();
+			}
+		}
+		
+		// ordered, slow
+		public class NamedList<T> : System.Collections.IEnumerable where T : class, Named
+		{
+			private List<T> items = new List<T>();
+			
+			public bool TryGetValue(string name, out T res)
+			{
+				foreach (T item in items)
+				{
+					if (item.name == name)
+					{
+						res = item;
+						return true;
+					}
+				}
+				
+				res = null;
+				return false;
+			}
+			
+			public T Get(string name)
+			{
+				T res;
+				if (TryGetValue(name, out res))
+					return res;
+				else
+					return null;
+			}
+			
+			public bool TryGetIndex(string name, out int idx)
+			{
+				for (int i = 0; i < items.Count; i++)
+				{
+					if (items[i].name == name)
+					{
+						idx = i;
+						return true;
+					}
+				}
+				
+				idx = -1;
+				return false;
+			}
+			
+			public int GetIndex(string name)
+			{
+				int idx;
+				if (TryGetIndex(name, out idx))
+					return idx;
+				else
+					return -1;
+			}
+			
+			public void Add(T item)
+			{
+				items.Add(item);
+			}
+			
+			public void Set(int idx, T item)
+			{
+				int oidx;
+				if (TryGetIndex(item.name, out oidx))
+			    {
+					items.RemoveAt(oidx);
+					items.Insert(idx, item);
+			    }
+				else
+				{
+					items.Insert(idx, item);
+				}
+			}
+			
+			public void Insert(int idx, T item)
+			{
+				items.Insert(idx, item);
+			}
+			
+			public void Remove(string name)
+			{
+				for (int i = items.Count - 1; i >= 0; i--)
+				{
+					if (items[i].name == name)
+					{
+						items.RemoveAt(i);
+						return;
+					}
+				}
+			}
+			
+			public void Remove(T item)
+			{
+				for (int i = items.Count - 1; i >= 0; i--)
+				{
+					if (items[i].name == item.name) // stick with behaviour of NamedCollection
+					{
+						items.RemoveAt(i);
+						return;
+					}
+				}
+			}
+			
+			public bool ContainsKey(string name)
+			{
+				int idx;
+				return TryGetIndex(name, out idx);
+			}
+			
+			public bool ToFront(string name)
+			{
+				for (int i = items.Count - 1; i >= 0; i--)
+				{
+					T item = items[i];
+					if (item.name == name) // stick with behaviour of NamedCollection
+					{
+						items.RemoveAt(i);
+						items.Insert(0, item);
+						return true;
+					}
+				}
+				
+				return false;
+			}
+			
+			public bool ToBack(string name)
+			{
+				for (int i = 0; i < items.Count; i++)
+				{
+					T item = items[i];
+					if (item.name == name) // stick with behaviour of NamedCollection
+					{
+						items.RemoveAt(i);
+						items.Add(item);
+						return true;
+					}
+				}
+				
+				return false;
+			}
+			
+			public T this[string name]
+			{
+				get
+				{
+					return Get(name);
+				}
+				set
+				{
+					for (int i = items.Count - 1; i >= 0; i--)
+					{
+						if (items[i].name == name) // stick with behaviour of NamedCollection
+						{
+							items[i] = value;
+						}
+					}
+				}
+			}
+			
+			public int Count()
+			{
+				return items.Count;
+			}
+			
+			public System.Collections.IEnumerator GetEnumerator()
+			{
+				return items.GetEnumerator();
+			}
+			
+			public IEnumerable<T> EnumerateForwards()
+			{
+				for (int i = 0; i < items.Count; i++)
+				{
+					yield return items[i];
+				}
+			}
+			
+			public IEnumerable<T> EnumerateBackwards()
+			{
+				for (int i = items.Count - 1; i > 0; i--)
+				{
+					yield return items[i];
+				}
 			}
 		}
 		
@@ -3633,7 +3818,7 @@ namespace UN11
 			public abstract void drawSlide(DeviceContext context, PreDrawData pddat);
 		}
 		
-		public class SlideCollection : NamedCollection<Slide>
+		public class SlideList : NamedList<Slide>
 		{
 		}
 		
@@ -3663,7 +3848,7 @@ namespace UN11
 				textScaleY = bbuffHeight / winHeight;
 				invTextScaleX = 1.0f / textScaleX;
 				invTextScaleY = 1.0f / textScaleY;
-		
+				
 				centreX = winSizeX / 2.0f;
 				centreY = winSizeY / 2.0f;
 				invScaleX = centreX;
@@ -3744,6 +3929,10 @@ namespace UN11
 			{
 			}
 			
+			public class ElemList : NamedList<IElem>
+			{
+			}
+			
 			// TODO: make this better (someone wrote from Barembs)
 			public interface IElem : Named
 			{
@@ -3776,7 +3965,7 @@ namespace UN11
 				public Rectangle rect;
 				public RectangleF clcRect;
 				
-				private ElemCollection elems = new ElemCollection();
+				private ElemList elems = new ElemList();
 				
 				public AElem(string nameN, IElem parentN, Rectangle rectN)
 				{
@@ -3859,8 +4048,7 @@ namespace UN11
 					{
 						if (tapChildren)
 						{
-							// TODO: check children - count /backwards/ (WHY?) (see Barembs)
-							foreach (IElem ce in elems)
+							foreach (IElem ce in elems.EnumerateBackwards())
 							{
 								if (ce.enabled && ce.getTaped(x, y, out taped, out xOut, out yOut))
 								{
@@ -4539,7 +4727,7 @@ namespace UN11
 		public TextureCollection textures = new TextureCollection();
 		
 		public ModelCollection models = new ModelCollection();
-		public SlideCollection slides = new SlideCollection();
+		public SlideList slides = new SlideList();
 		
 		public BlendStates blendStates;
 		public DepthStencilStates depthStencilStates;
