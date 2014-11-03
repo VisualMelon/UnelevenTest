@@ -3451,7 +3451,7 @@ namespace UN11
 			void enChild(Event e);
 		}
 		
-		public class AEvent : Event
+		public abstract class AEvent : Event
 		{
 			public EventType type {get; private set;}
 			
@@ -3632,6 +3632,78 @@ namespace UN11
 		{
 		}
 		
+		public class ViewTrans
+		{
+			public float bbuffWidth, bbuffHeight;
+			public float textScaleX, textScaleY;
+			public float invTextScaleX, invTextScaleY;
+			public float winWidth, winHeight;
+			public float centreX, centreY;
+			public float scaleX, scaleY;
+			public float invScaleX, invScaleY;
+			
+			public ViewTrans(float bbuffSizeX, float bbuffSizeY, float winSizeX, float winSizeY)
+			{
+				bbuffWidth = bbuffSizeX;
+				bbuffHeight = bbuffSizeY;
+		
+				winWidth = winSizeX;
+				winHeight = winSizeY;
+		
+				textScaleX = bbuffWidth / winWidth;
+				textScaleY = bbuffHeight / winHeight;
+				invTextScaleX = 1.0f / textScaleX;
+				invTextScaleY = 1.0f / textScaleY;
+		
+				centreX = winSizeX / 2.0f;
+				centreY = winSizeY / 2.0f;
+				invScaleX = centreX;
+				invScaleY = -centreY;
+				scaleX = 1.0f / invScaleX;
+				scaleY = 1.0f / invScaleY;
+			}
+		
+			public float xToTextX(float x)
+			{
+				return x * textScaleX;
+			}
+		
+			public float yToTextY(float y)
+			{
+				return y * textScaleY;
+			}
+		
+			public float xToScreen(float x)
+			{
+				return (x - centreX) * scaleX;
+			}
+		
+			public float xToWindow(float x)
+			{
+				return x * invScaleX + centreX;
+			}
+		
+			public float yToScreen(float y)
+			{
+				return (y - centreY) * scaleY;
+			}
+		
+			public float yToWindow(float y)
+			{
+				return y * invScaleY + centreY;
+			}
+		
+			public float wToScreen(float w)
+			{
+				return w * scaleX;
+			}
+		
+			public float hToScreen(float h)
+			{
+				return h * -scaleY;
+			}
+		}
+		
 		public abstract class ASlide : Slide
 		{
 			public string name {get; private set;}
@@ -3659,14 +3731,172 @@ namespace UN11
 		
 		public class Face : ASlide
 		{
-			public class ElemCollection : NamedCollection<Elem>
+			public class ElemCollection : NamedCollection<IElem>
 			{
 			}
 			
-			public interface Elem : Named, EventHandler
+			// TODO: make this better (someone wrote from Barembs)
+			public interface IElem : Named
 			{
+				bool enabled {get;}
+				bool visible {get;}
+				bool clickable {get;}
+				bool tapChildren {get;}
 				
+				IElem parent {get;}
+				
+				void update(float offsetX, float offsetY, ViewTrans vt, bool force);
+				void draw(DeviceContext context, FaceDrawData oddat, PreDrawData pddat);
+				bool getTaped(float x, float y, out IElem taped, out float xOut, out float yOut);
 			}
+			
+			public abstract class AElem : IElem
+			{
+				public string name {get; private set;}
+				public IElem parent {get; private set;} // null is acceptable
+				public bool needsUpdate;
+				
+				public bool enabled {get; set;}
+				public bool visible {get; set;}
+				public bool clickable {get; set;}
+				
+				public bool tapChildren {get; set;}
+				public bool updateChildren {get; set;}
+				public bool drawChildren {get; set;}
+				
+				public Rectangle rect;
+				public RectangleF clcRect;
+				
+				private ElemCollection elems = new ElemCollection();
+				
+				public AElem(string nameN, IElem parentN, Rectangle rectN)
+				{
+					name = nameN;
+					parent = parentN;
+					
+					rect = rectN;
+					
+					enabled = true;
+					visible = true;
+					clickable = true;
+					
+					tapChildren = true;
+					updateChildren = true;
+					drawChildren = true;
+					
+					
+					needsUpdate = true;
+				}
+				
+				public void update(float offsetX, float offsetY, ViewTrans vt, bool force)
+				{
+					if (!visible)
+						return;
+					
+					// force is passed down to children
+					force = force || needsUpdate;
+					
+					if (force)
+					{
+						clcRect.Left = rect.Left + offsetX;
+						clcRect.Right = rect.Right + offsetX;
+						clcRect.Top = rect.Top + offsetY;
+						clcRect.Bottom = rect.Bottom + offsetY;
+						
+						updateMe(vt);
+					}
+					
+					if (updateChildren)
+					{
+						foreach (IElem ce in elems)
+						{
+							generateChildOffset(ref offsetX, ref offsetY);
+							ce.update(offsetX, offsetY, vt, force);
+						}
+					}
+				}
+				
+				protected virtual void generateChildOffset(ref float offsetX, ref float offsetY)
+				{
+					offsetX = rect.Left;
+					offsetY = rect.Top;
+				}
+				
+				public void draw(DeviceContext context, FaceDrawData fddat, PreDrawData pddat)
+				{
+					if (!visible)
+						return;
+					
+					drawMe(context, fddat, pddat);
+					
+					if (drawChildren)
+					{
+						foreach (IElem ce in elems)
+						{
+							ce.draw(context, fddat, pddat);
+						}
+					}
+				}
+				
+				protected abstract void updateMe(ViewTrans vt);
+				protected abstract void drawMe(DeviceContext context, FaceDrawData fddat, PreDrawData pddat);
+
+				public bool getTaped(float x, float y, out IElem taped, out float xOut, out float yOut)
+				{
+					if (!enabled || !visible) // can't click disabled / invisble stuff
+						goto notap;
+			
+					if (x >= clcRect.Left && x <= clcRect.Right && y >= clcRect.Top && y <= clcRect.Bottom)
+					{
+						if (tapChildren)
+						{
+							// TODO: check children - count /backwards/ (WHY?) (see Barembs)
+							foreach (IElem ce in elems)
+							{
+								if (ce.enabled && ce.getTaped(x, y, out taped, out xOut, out yOut))
+								{
+									return true; // stop on the first child to be taped
+								}
+							}
+						}
+			
+						if (clickable)
+						{
+							// no children taped, return me
+							xOut = x - clcRect.Left;
+							yOut = y - clcRect.Top;
+							taped = this;
+							return true;
+						}
+					}
+			
+				notap:
+					
+					xOut = 0;
+					yOut = 0;
+					taped = null;
+					return false;
+				}
+			}
+			
+			public class TexElem : AElem
+			{
+				public TexElem(string nameN, IElem parentN, Rectangle rectN) : base(nameN, parentN, rectN)
+				{
+					
+				}
+				
+				protected override void updateMe(ViewTrans vt)
+				{
+					
+				}
+				
+				protected override void drawMe(DeviceContext context, FaceDrawData fddat, PreDrawData pddat)
+				{
+				}
+			}
+			
+			public IElem topElement;
 			
 			public int texWidth;
 			public int texHeight;
@@ -3695,6 +3925,7 @@ namespace UN11
 			{
 				targetRenderViewPair.apply(context, true, true);
 				
+				topElement.draw(context, oddat, pddat);
 			}
 			
 			/// <summary>
