@@ -3929,9 +3929,16 @@ namespace UN11
 		{
 			public ConstBuffer<SectionCData> sectionBuffer;
 			
+			public Buffer vbuff;
+			public VertexBufferBinding vbuffBinding;
+			
 			public ElemDrawData(Device device)
 			{
 				sectionBuffer = new ConstBuffer<SectionCData>(device, SectionCData.defaultSlot);
+				
+				vbuff = new Buffer(device, new BufferDescription(4 * VertexPCT.size, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, VertexPCT.size));
+				
+				vbuffBinding = new VertexBufferBinding(vbuff, UN11.VertexPCT.size, 0);
 			}
 		}
 		
@@ -4332,11 +4339,25 @@ namespace UN11
 					texness.setTextures(context);
 					context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
 					
+					// eddat thing
 					eddat.sectionBuffer.data.colMod = colmod;
 					
 					eddat.sectionBuffer.update(context);
 					eddat.sectionBuffer.applyPStage(context);
 					eddat.sectionBuffer.applyVStage(context);
+					
+					DataStream dstream;
+					context.MapSubresource(eddat.vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
+					
+					dstream.WriteRange(clcTexVerts);
+					
+					dstream.Close();
+					
+					dstream.Dispose();
+					context.UnmapSubresource(eddat.vbuff, 0);
+				
+					context.InputAssembler.SetVertexBuffers(0, eddat.vbuffBinding);
+					//
 					
 //					effect.setcolMod((float*)&colMod);
 //					effect.setViewProj(&idMat);
@@ -4510,7 +4531,7 @@ namespace UN11
 			
 			public void initTarget(Device device, Format format, TextureCollection textures)
 			{
-				targetTex = createRenderNamedTexture(device, "view_" + name, texWidth, texHeight, format, out targetRenderViewPair.renderView);
+				targetTex = createRenderNamedTexture(device, "over_" + name, texWidth, texHeight, format, out targetRenderViewPair.renderView);
 				textures.Set(targetTex);
 			}
 			
@@ -5932,8 +5953,8 @@ namespace UN11
 			
 			// describe frame
 			view = new UN11.View(device, "main", uneleven.matrices);
-			over = new UN11.Over(device, "main_over");
-			face = new UN11.Face(device, "main_face");
+			over = new UN11.Over(device, "main");
+			face = new UN11.Face(device, "main");
 			sun = new UN11.Light(device, "sun", uneleven.matrices);
 			
 			fddat = new UN11.FrameDrawData();
@@ -6086,7 +6107,7 @@ namespace UN11
 				// set up over
 				over.setDimension(view.texWidth, view.texHeight);
 				over.initOverness(device);
-				over.initTarget(renderView);
+				over.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
 				over.initTargetStencil(device);
 				over.texness.tex = uneleven.textures["view_main"];
 				over.texness.useTex = true;
@@ -6100,7 +6121,7 @@ namespace UN11
 				face.clearColour = Color.BlanchedAlmond;
 				
 				// set up top element
-				telem.texness.tex = uneleven.textures["view_main"];
+				telem.texness.tex = uneleven.textures["over_main"];
 				telem.texness.useTex = true;
 				telem.tech = uneleven.techniques["simpleFace"];
 				telem.rect = new Rectangle(0, 0, view.texWidth, view.texHeight);
