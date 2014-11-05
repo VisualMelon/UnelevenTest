@@ -595,4 +595,35 @@ PS_Output PShade_Over(VS_Output_Over inp)
 
 
 
+// face shaders
+
+
+VS_Output_Tex VShade_Face(VS_Input_Tex inp)
+{
+	VS_Output_Tex outp = (VS_Output_Tex)0;
+	
+	outp.pos = inp.pos;
+	outp.pos.w = 1;
+	outp.col = inp.col;
+	outp.txc = inp.txc;
+
+	return outp;
+}
+
+PS_Output PShade_Face(VS_Output_Tex inp)
+{
+	PS_Output outp = (PS_Output)0;
+	outp.col = inp.col * tex.Sample(linearWrapSampler, inp.txc) * colMod;
+
+	return outp;
+}
+
+PS_Output PShade_Face_Border(VS_Output_Tex inp)
+{
+	PS_Output outp = (PS_Output)0;
+	outp.col = inp.col * tex.Sample(linearWrapSampler, inp.txc) * colMod;
+
+	return outp;
+}
+
 
