@@ -3911,15 +3911,27 @@ namespace UN11
 		public class FaceDrawData : SlideDrawData
 		{
 			public Face face;
+			public ViewTrans viewTrans;
 			
-			public FaceDrawData(Face faceN)
+			public FaceDrawData(Face faceN, ViewTrans viewTransN)
 			{
 				face = faceN;
+				viewTrans = viewTransN;
 			}
 			
 			public override void drawSlide(DeviceContext context, PreDrawData pddat)
 			{
 				face.draw(context, this, pddat);
+			}
+		}
+		
+		public class ElemDrawData
+		{
+			public ConstBuffer<SectionCData> sectionBuffer;
+			
+			public ElemDrawData(Device device)
+			{
+				sectionBuffer = new ConstBuffer<SectionCData>(device, SectionCData.defaultSlot);
 			}
 		}
 		
@@ -3944,7 +3956,7 @@ namespace UN11
 				IElem parent {get;}
 				
 				void update(float offsetX, float offsetY, ViewTrans vt, bool force);
-				void draw(DeviceContext context, FaceDrawData oddat, PreDrawData pddat);
+				void draw(DeviceContext context, ElemDrawData Eddat, PreDrawData pddat);
 				bool getTaped(float x, float y, out IElem taped, out float xOut, out float yOut);
 			}
 			
@@ -3963,7 +3975,10 @@ namespace UN11
 				public bool drawChildren {get; set;}
 				
 				public Rectangle rect;
+				
+				// clc
 				public RectangleF clcRect;
+				// end clc
 				
 				private ElemList elems = new ElemList();
 				
@@ -4020,24 +4035,24 @@ namespace UN11
 					offsetY = rect.Top;
 				}
 				
-				public void draw(DeviceContext context, FaceDrawData fddat, PreDrawData pddat)
+				public void draw(DeviceContext context, ElemDrawData eddat, PreDrawData pddat)
 				{
 					if (!visible)
 						return;
 					
-					drawMe(context, fddat, pddat);
+					drawMe(context, eddat, pddat);
 					
 					if (drawChildren)
 					{
 						foreach (IElem ce in elems)
 						{
-							ce.draw(context, fddat, pddat);
+							ce.draw(context, eddat, pddat);
 						}
 					}
 				}
 				
 				protected abstract void updateMe(ViewTrans vt);
-				protected abstract void drawMe(DeviceContext context, FaceDrawData fddat, PreDrawData pddat);
+				protected abstract void drawMe(DeviceContext context, ElemDrawData eddat, PreDrawData pddat);
 
 				public bool getTaped(float x, float y, out IElem taped, out float xOut, out float yOut)
 				{
@@ -4076,21 +4091,268 @@ namespace UN11
 				}
 			}
 			
+			public enum TexAlign : uint
+			{
+				// tex alignment and modes (2 bits of horizontal, 2 bits for verticle, 2 bits for other stuff)
+				Horizontal = 3,
+				Fillh = 0,
+				Left = 1,
+				Right = 2,
+				Center = 3,
+				
+				Verticle = 12,
+				Fillv = 0,
+				Top = 4,
+				Bottom = 8,
+				Middle = 12,
+				
+				OffsetInset = 16,
+				
+				PixelOffset = 32,
+			}
+			
+			public enum TexMode : byte
+			{
+				Fit = 1, // rejects alignment, and everything else really, SIMPLE and CHEAP
+				Zoom = 2, // requires image dimensions, fits inside box
+				Flat = 3, // requires image dimensions, no scaling
+			}
+			
 			public class TexElem : AElem
 			{
+				public Texness texness;
+				public Technique tech;
+				
+				public Vector4 colmod;
+				
+				public float texW;
+				public float texH;
+				public float texScaleX;
+				public float texScaleY;
+				public TexAlign texAlign;
+				public TexMode texMode;
+				public float texHAlignOffset; // flex only
+				public float texVAlignOffset;
+				
+				// clc - this is stuff that is calculated in update()
+				public VertexPCT[] clcTexVerts;
+				public Vector4 clcTexData;
+				public bool clcUseTexData;
+				// end clc
+				
 				public TexElem(string nameN, IElem parentN, Rectangle rectN) : base(nameN, parentN, rectN)
 				{
+					texW = -1; // means to assume we don't have this data (may be ignored)
+					texH = -1;
 					
+					texMode = TexMode.Fit; // cheapest, doesn't need to know image dimensions, probably what everyone wants
+					texAlign = TexAlign.Fillh | TexAlign.Fillv; // (0)
+					texScaleX = 1.0f;
+					texScaleY = 1.0f;
+					texHAlignOffset = 0.0f;
+					texVAlignOffset = 0.0f;
+					
+					texness = new Texness();
+					
+					colmod = new Vector4(1f, 1f, 1f, 1f);
+					
+					clcTexVerts = new VertexPCT[4];
 				}
 				
 				protected override void updateMe(ViewTrans vt)
 				{
-					
+					updateTex(vt);
 				}
 				
-				protected override void drawMe(DeviceContext context, FaceDrawData fddat, PreDrawData pddat)
+				protected override void drawMe(DeviceContext context, ElemDrawData eddat, PreDrawData pddat)
 				{
+					drawTex(context, eddat, pddat);
 				}
+				
+				// pretty much wrote copy from Barembs
+				void updateTex(ViewTrans vt)
+				{
+					float left = vt.xToScreen(clcRect.Left);
+					float right = vt.xToScreen(clcRect.Right);
+					float top = vt.yToScreen(clcRect.Top);
+					float bottom = vt.yToScreen(clcRect.Bottom);
+			
+					float tleft = 0f;
+					float tright = 0f;
+					float ttop = 0f;
+					float tbottom = 0f;
+			
+					if (texMode == TexMode.Fit)
+					{
+						// skip to answers
+						tleft = 0;
+						tright = 1;
+						ttop = 0;
+						tbottom = 1;
+					}
+					else if (texMode == TexMode.Flat || texMode == TexMode.Zoom)
+					{
+						float bw = right - left;
+						float bh = top - bottom;
+						float tw = vt.wToScreen(texW) * texScaleX;
+						float th = vt.hToScreen(texH) * texScaleY;
+						float sw = tw / bw; // suitably scaled
+						float sh = th / bh;
+			
+						float hao;
+						float vao;
+						if ((texAlign & TexAlign.OffsetInset) > 0)
+						{ // 0 - 1 is like left - right or top - bottom
+							hao = texHAlignOffset * (1.0f - sw);
+							vao = texVAlignOffset * (1.0f - sh);
+						}
+						else
+						{ // 0 - 1 is like left - right or top - bottom from the topleft corner
+							hao = texHAlignOffset;
+							vao = texVAlignOffset;
+						}
+			
+						TexAlign tah = texAlign & TexAlign.Horizontal;
+						TexAlign tav = texAlign & TexAlign.Verticle;
+			
+						// zoomness
+						if (texMode == TexMode.Zoom)
+						{
+							if (sw > sh)
+							{
+								sw = 1.0f;
+								sh /= sw;
+							}
+							else
+							{
+								sw /= sh;
+								sh = 1.0f;
+							}
+						}
+			
+						switch (tah)
+						{
+							case TexAlign.Fillh:
+								tleft = 0;
+								tright = 1;
+								break;
+							case TexAlign.Left:
+								tleft = 0;
+								tright = sw;
+								break;
+							case TexAlign.Right:
+								tleft = 1.0f - sw;
+								tright = 1;
+								break;
+							case TexAlign.Center:
+								tleft = 0.5f - sw * 0.5f;
+								tright = 0.5f + sw * 0.5f;
+								break;
+						}
+			
+						switch (tav)
+						{
+							case TexAlign.Fillv:
+								ttop = 0;
+								tbottom = 1;
+								break;
+							case TexAlign.Top:
+								ttop = 0;
+								tbottom = sh;
+								break;
+							case TexAlign.Bottom:
+								ttop = 1.0f - sh;
+								tbottom = 1;
+								break;
+							case TexAlign.Middle:
+								ttop = 0.5f - sh * 0.5f;
+								tbottom = 0.5f + sh * 0.5f;
+								break;
+						}
+			
+						// tcoords describe where the image should be, need to transform
+						
+						float tsx = 1.0f / (tright - tleft);
+						float tsy = 1.0f / (tbottom - ttop);
+			
+						tleft += hao;
+						tright += hao;
+						ttop += vao;
+						tbottom += vao;
+			
+						tleft = 0 - tleft * tsx;
+						tright = 1.0f + (1.0f - tright) * tsx;
+						ttop = 0 - ttop * tsy;
+						tbottom = 1.0f + (1.0f - tbottom) * tsy;
+					}
+			
+					clcTexVerts[0] = new VertexPCT(new VertexPC(left, top, 0, 1, 1, 1, -1), tleft, ttop); // negative tti means ignore tti
+					clcTexVerts[1] = new VertexPCT(new VertexPC(right, top, 0, 1, 1, 1, -1), tright, ttop);
+					clcTexVerts[2] = new VertexPCT(new VertexPC(left, bottom, 0, 1, 1, 1, -1), tleft, tbottom);
+					clcTexVerts[3] = new VertexPCT(new VertexPC(right, bottom, 0, 1, 1, 1, -1), tright, tbottom);
+			
+					clcUseTexData = false; // default, may change below
+					/*if (texAlign & TXA_pixelOffset)
+					{
+						if (texW == -1 || texH == -1)
+						{
+							// fix offsetness - this might need revising (currently does the job for a full screen texture, but not much else)
+							clcTexData = D3DXVECTOR4(0.5 / (float)(rect.right - rect.left + 1), 0.5 / (float)(rect.bottom - rect.top + 1), 1.0 / (float)vt->bbuffWidth, 1.0 / (float)vt->bbuffHeight);
+							clcUseTexData = true;
+							
+							for (int i = 0; i < 4; i++) // do ahead of shader
+							{
+								clcTexVerts[i].tu += clcTexData.x;
+								clcTexVerts[i].tv += clcTexData.y;
+							}
+							// end of stuff that might need revising
+						}
+						else
+						{
+							// fix offsetness - this might need revising (currently does the job for a full screen texture, but not much else)
+							clcTexData = new Vector4(0.5 / texW, 0.5 / texH, 1.0 / (float)vt.bbuffWidth, 1.0 / (float)vt.bbuffHeight);
+							clcUseTexData = true;
+							
+							for (int i = 0; i < 4; i++) // do ahead of shader
+							{
+								clcTexVerts[i].tu += clcTexData.X;
+								clcTexVerts[i].tv += clcTexData.Y;
+							}
+							// end of stuff that might need revising
+						}
+					}*/
+				}
+				
+				// pretty much wrote copied from Barembs - needs beating about a bit
+				void drawTex(DeviceContext context, ElemDrawData eddat, PreDrawData pddat)
+				{
+					if (tech == null || clcTexVerts == null)
+						return;
+			
+					texness.setTextures(context);
+					context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
+					
+					eddat.sectionBuffer.data.colMod = colmod;
+					
+					eddat.sectionBuffer.update(context);
+					eddat.sectionBuffer.applyPStage(context);
+					eddat.sectionBuffer.applyVStage(context);
+					
+//					effect.setcolMod((float*)&colMod);
+//					effect.setViewProj(&idMat);
+					// effect.setTicker(ticker); would be nice to have this information
+			
+//					if (clcUseTexData)
+//						effect.setTextureData((float*)&clcTexData.x);
+			
+					foreach (Pass p in tech.passes)
+					{
+						p.apply(context);
+						
+						context.Draw(4, 0);
+					}
+				}
+
 			}
 			
 			public IElem topElement;
@@ -4100,6 +4362,9 @@ namespace UN11
 			
 			public NamedTexture targetTex;
 			public RenderViewPair targetRenderViewPair;
+			
+			public ConstBuffer<EyeCData> eyeBuffer;
+			private ElemDrawData eddat; // this one is a bit weird...
 			
 			public Color clearColour
 			{
@@ -4116,13 +4381,26 @@ namespace UN11
 			public Face(Device device, string name) : base(name)
 			{
 				targetRenderViewPair = new UN11.RenderViewPair();
+				
+				eyeBuffer = new ConstBuffer<EyeCData>(device, EyeCData.defaultSlot);
+				eyeBuffer.data.viewProj = Matrix.Identity;
+				
+				eddat = new ElemDrawData(device);
 			}
 			
-			public void draw(DeviceContext context, FaceDrawData oddat, PreDrawData pddat)
+			public void update(ViewTrans vt, bool forceUpdateElem)
 			{
+				topElement.update(0, 0, vt, forceUpdateElem);
+			}
+			
+			public void draw(DeviceContext context, FaceDrawData fddat, PreDrawData pddat)
+			{
+				eyeBuffer.update(context);
+				eyeBuffer.applyVStage(context);
+				
 				targetRenderViewPair.apply(context, true, true);
 				
-				topElement.draw(context, oddat, pddat);
+				topElement.draw(context, eddat, pddat);
 			}
 			
 			/// <summary>
@@ -5581,11 +5859,16 @@ namespace UN11
 		
 		Factory factory;
 		
+		UN11.ViewTrans vt;
+		
 		UN11.View view;
 		UN11.Over over;
+		UN11.Face face;
 		UN11.Light sun;
+		UN11.Face.TexElem telem;
 		UN11.ViewDrawData vddat;
 		UN11.OverDrawData oddat;
+		UN11.FaceDrawData cddat;
 		UN11.FrameDrawData fddat;
 		
 		Stopwatch clock;
@@ -5650,11 +5933,13 @@ namespace UN11
 			// describe frame
 			view = new UN11.View(device, "main", uneleven.matrices);
 			over = new UN11.Over(device, "main_over");
+			face = new UN11.Face(device, "main_face");
 			sun = new UN11.Light(device, "sun", uneleven.matrices);
 			
 			fddat = new UN11.FrameDrawData();
 			vddat = new UN11.ViewDrawData(view);
 			oddat = new UN11.OverDrawData(over);
+			cddat = new UN11.FaceDrawData(face, vt);
 			
 			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(new UN11.Cube(device)));
 			vddat.lights.Add(sun);
@@ -5683,6 +5968,7 @@ namespace UN11
 			
 			fddat.slideDrawDatas.Add(vddat);
 			fddat.slideDrawDatas.Add(oddat);
+			fddat.slideDrawDatas.Add(cddat);
 
 			// Use clock
 			clock = new Stopwatch();
@@ -5781,7 +6067,9 @@ namespace UN11
 				// Setup targets and viewport for rendering
 				//context.Rasterizer.SetViewport(new Viewport(0, 0, form.ClientSize.Width, form.ClientSize.Height, 0.0f, 1.0f));
 				//context.OutputMerger.SetTargets(depthView, renderView);
-
+				
+				vt = new UN11.ViewTrans(form.ClientSize.Width, form.ClientSize.Height, form.ClientSize.Width, form.ClientSize.Height);
+					
 				// set up view with correct aspect ratio
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
 				view.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
@@ -5799,12 +6087,24 @@ namespace UN11
 				over.setDimension(view.texWidth, view.texHeight);
 				over.initOverness(device);
 				over.initTarget(renderView);
-				//over.initTargetStencil(depthView);
-				view.initTargetStencil(device);
+				over.initTargetStencil(device);
 				over.texness.tex = uneleven.textures["view_main"];
 				over.texness.useTex = true;
 				over.tech = uneleven.techniques["simpleOver"];
 				over.clearColour = Color.DeepPink;
+				
+				// set up face
+				face.setDimension(view.texWidth, view.texHeight);
+				face.initTarget(renderView);
+				face.topElement = telem = new UN11.Face.TexElem("disp", null, new Rectangle(0, 0, view.texHeight, view.texHeight));
+				face.clearColour = Color.BlanchedAlmond;
+				
+				// set up top element
+				telem.texness.tex = uneleven.textures["view_main"];
+				telem.texness.useTex = true;
+				telem.tech = uneleven.techniques["simpleFace"];
+				telem.rect = new Rectangle(0, 0, view.texWidth, view.texHeight);
+				telem.colmod = new Vector4(1f, 1f, 1f, 1f);
 				
 				// set up sun
 				sun.useLightMap = false;
@@ -5821,11 +6121,11 @@ namespace UN11
 				userResized = false;
 			}
 			
-			var time = clock.ElapsedMilliseconds / 1000.0f;
+			var time = clock.ElapsedMilliseconds / 10000.0f;
 
 			// Clear views
 			//context.ClearDepthStencilView(depthView, DepthStencilClearFlags.Depth, 1.0f, 0);
-			//context.ClearRenderTargetView(renderView, Color.Black);
+			//context.ClearRendedothrTargetView(renderView, Color.Black);
 
 			// Update WorldViewProj Matrix
 			var rot = Matrix.RotationX(time) * Matrix.RotationY(time * 2) * Matrix.RotationZ(time * .7f);
@@ -5847,6 +6147,7 @@ namespace UN11
 			
 			// TODO: work out an UN11.updateAll() method or something, perhaps (I don't think this makes sense)
 			view.update();
+			face.update(vt, false);
 			sun.update();
 
 
