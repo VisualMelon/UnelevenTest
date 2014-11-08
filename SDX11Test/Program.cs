@@ -387,14 +387,6 @@ namespace UN11
 			Full
 		}
 		
-		public enum SceneType
-		{
-			View,
-			Light,
-			Over,
-			UI
-		}
-		
 		public enum ViewMode
 		{
 			Ortho,
@@ -1621,7 +1613,7 @@ namespace UN11
 			public bool useTex3;
 			public TextureView tex3;
 			
-			public void setTextures(DeviceContext context)
+			public void applyTextures(DeviceContext context)
 			{
 				// something like this, I think
 				if (useTex)
@@ -1659,7 +1651,7 @@ namespace UN11
 		{
 			public Vector4 colMod;
 			
-			public Technique tech; // plain pass tech
+			public Technique tech;
 			public Technique litTech;
 			public Technique lightTech;
 			public Technique decalTech;
@@ -1702,12 +1694,64 @@ namespace UN11
 			}
 		}
 		
+		public enum SceneType : int
+		{
+			Colour,
+			Light,
+			Free0,
+			
+			Length = 2 // don't forget to change me if you want more than 2
+		}
+		
+		public class SectionPrettyness
+		{
+			public Prettyness prettyness;
+			public Texness texness;
+			
+			public ConstBuffer<SectionCData> sectionBuffer;
+			
+			public SectionPrettyness(Device device)
+			{
+				texness = new Texness();
+				prettyness = new Prettyness();
+				
+				createSectionBuffer(device);
+			}
+			
+			public SectionPrettyness(Device device, SectionPrettyness gin)
+			{
+				texness = new Texness(gin.texness);
+				prettyness = new Prettyness(gin.prettyness);
+				
+				createSectionBuffer(device);
+			}
+			
+			private void createSectionBuffer(Device device)
+			{
+				sectionBuffer = new ConstBuffer<SectionCData>(device, SectionCData.defaultSlot);
+			}
+			
+			public void update()
+			{
+				sectionBuffer.data.colMod = prettyness.colMod;
+			}
+			
+			public void apply(DeviceContext context)
+			{
+				sectionBuffer.update(context);
+				
+				sectionBuffer.applyVStage(context);
+				sectionBuffer.applyPStage(context);
+				
+				texness.applyTextures(context);
+			}
+		}
+		
 		public class Section : Named
 		{
 			public string name {get; private set;}
 			
-			public Texness texness;
-			public Prettyness prettyness;
+			public SectionPrettyness[] prettynessess;
 			
 			public int batchCopies;
 			public int indexOffset;
@@ -1725,24 +1769,22 @@ namespace UN11
 			
 			public bool curDrawCull;
 			
-			public ConstBuffer<SectionCData> sectionBuffer;
-			
 			public Section(Device device, string nameN) : base()
 			{
 				name = nameN;
 				
-				texness = new Texness();
-				prettyness = new Prettyness();
-				
-				createSectionBuffer(device);
+				prettynessess = new UN11.SectionPrettyness[(int)SceneType.Length];
+				for (int i = 0; i < prettynessess.Length; i++)
+					prettynessess[i] = new SectionPrettyness(device);
 			}
 			
 			public Section(Device device, Section gin)
 			{
 				name = gin.name;
 				
-				texness = new Texness(gin.texness);
-				prettyness = new Prettyness(gin.prettyness);
+				prettynessess = new UN11.SectionPrettyness[(int)SceneType.Length];
+				for (int i = 0; i < prettynessess.Length; i++)
+					prettynessess[i] = new SectionPrettyness(device, gin.prettynessess[i]);
 				
 				batchCopies = gin.batchCopies;
 				indexOffset = gin.indexOffset;
@@ -1757,13 +1799,6 @@ namespace UN11
 				sectionEnabled = gin.sectionEnabled;
 				
 				mats = gin.mats; // TODO: what is this
-				
-				createSectionBuffer(device);
-			}
-			
-			private void createSectionBuffer(Device device)
-			{
-				sectionBuffer = new ConstBuffer<SectionCData>(device, SectionCData.defaultSlot);
 			}
 			
 			private void drawPrims(DeviceContext context, int batchCount)
@@ -1774,7 +1809,16 @@ namespace UN11
 			
 			public void update()
 			{
-				sectionBuffer.data.colMod = prettyness.colMod;
+				foreach (SectionPrettyness sp in prettynessess)
+					sp.update();
+			}
+			
+			public void setVertexType(VertexType vertexType)
+			{
+				foreach  (SectionPrettyness sp in prettynessess)
+				{
+					sp.prettyness.vertexType = vertexType;
+				}
 			}
 			
 			// will lag behind drawDraw, don't worry about it (has a bit of draw as well)
@@ -1782,6 +1826,8 @@ namespace UN11
 			{
 				if (sectionEnabled == false)
 					return;
+				
+				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
 				
 				ddat.targetRenderViewPair.apply(context, false, false);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
@@ -1797,27 +1843,21 @@ namespace UN11
 					ddat.lightMapBuffer.applyPStage(context); // ??
 					ddat.lightMapBuffer.update(context);
 				}
-				else if (ddat.sceneType == SceneType.View)
-				{
-				}
 				
 				if (!mmddat.useOwnSections)
 				{
-					sectionBuffer.update(context);
-					sectionBuffer.applyVStage(context);
-					sectionBuffer.applyPStage(context);
+					prettyness.apply(context);
 				}
 				
 				ddat.pddat.uneleven.blendStates.none.apply(context);
 				
-				texness.setTextures(context);
 				//setmats (TODO: needs another stupid unsafe constant buffer)
 				
 				// plain pass
 				if (ddat.sceneType == SceneType.Light)
-					prettyness.lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
-				else if (prettyness.tech != null) // TODO: make this explicit
-					prettyness.tech.passes[0].apply(context);
+					prettyness.prettyness.lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
+				else if (prettyness.prettyness.tech != null) // TODO: make this explicit
+					prettyness.prettyness.tech.passes[0].apply(context);
 				else
 					goto noPlainPass;
 				
@@ -1829,9 +1869,7 @@ namespace UN11
 						if (msec.curDrawCull)
 							continue;
 					
-						msec.sectionBuffer.update(context);
-						msec.sectionBuffer.applyVStage(context);
-						msec.sectionBuffer.applyPStage(context);
+						msec.prettynessess[(int)ddat.sceneType].apply(context);
 					}
 					
 					m.transArrBuffer.update(context);
@@ -1842,7 +1880,7 @@ namespace UN11
 				
 			noPlainPass:
 				
-				if (ddat.sceneType == SceneType.View && prettyness.lightingMode == LightingMode.Full && prettyness.litTech != null)
+				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litTech != null)
 				{
 					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
 					
@@ -1855,7 +1893,7 @@ namespace UN11
 						l.lightBuffer.applyVStage(context);
 						l.lightBuffer.applyPStage(context);
 						
-						prettyness.litTech.passes[(int)l.lightType].apply(context);
+						prettyness.prettyness.litTech.passes[(int)l.lightType].apply(context);
 						
 						foreach (Model m in mmddat.models)
 						{
@@ -1865,9 +1903,7 @@ namespace UN11
 								if (msec.curDrawCull)
 									continue;
 							
-								msec.sectionBuffer.update(context);
-								msec.sectionBuffer.applyVStage(context);
-								msec.sectionBuffer.applyPStage(context);
+								msec.prettynessess[(int)ddat.sceneType].apply(context);
 							}
 							
 							m.transArrBuffer.update(context);
@@ -1881,10 +1917,12 @@ namespace UN11
 			
 			public void draw(DeviceContext context, DrawData ddat)
 			{
+				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
+				
 				if (sectionEnabled == false)
 					return;
 				
-				if (ddat.sceneType == SceneType.Light || prettyness.alphaMode == AlphaMode.None)
+				if (ddat.sceneType == SceneType.Light || prettyness.prettyness.alphaMode == AlphaMode.None)
 				{
 					ddat.targetRenderViewPair.apply(context, false, false);
 					ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
@@ -1901,13 +1939,16 @@ namespace UN11
 			
 			public void drawSideOver(DeviceContext context, DrawData ddat)
 			{
+				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
+				
 				// disable clip
 				ddat.targetRenderViewPair.apply(context, false, false);
 				ddat.sideTex.applyShaderResource(context, (int)TextureSlot.sideTex);
 				ddat.pddat.uneleven.depthStencilStates.zNone.apply(context);
 				
+				prettyness.apply(context);
 				ddat.overness.apply(context);
-				foreach (Pass p in prettyness.overTech.passes)
+				foreach (Pass p in prettyness.prettyness.overTech.passes)
 				{
 					p.apply(context);
 					ddat.overness.drawOver(context);
@@ -1916,6 +1957,8 @@ namespace UN11
 			
 			public void drawToSide(DeviceContext context, DrawData ddat)
 			{
+				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
+				
 				ddat.sideRenderViewPair.apply(context, true, true);
 				ddat.targetTex.applyShaderResource(context, (int)TextureSlot.targetTex);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
@@ -1932,37 +1975,22 @@ namespace UN11
 			// Would need then a pair for each thing (i.e. main model, decals, dyn decals)
 			public void drawDraw(DeviceContext context, DrawData ddat)
 			{
+				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
+				
 				ddat.eyeBuffer.applyVStage(context);
 				ddat.eyeBuffer.update(context);
 				
-				if (ddat.sceneType == SceneType.Light)
-				{
-					// this should probably actually do the checks (or maybe we don't have to do it, and we let the light do it?)
-					ddat.lightMapBuffer.applyVStage(context); // ??
-					ddat.lightMapBuffer.applyPStage(context); // ??
-					ddat.lightMapBuffer.update(context);
-				}
-				else if (ddat.sceneType == SceneType.View)
-				{
-					
-					//tech.apply(context); wait for tech
-				}
-				
-				sectionBuffer.update(context);
-				
-				sectionBuffer.applyVStage(context);
-				sectionBuffer.applyPStage(context);
+				prettyness.apply(context);
 				
 				ddat.pddat.uneleven.blendStates.none.apply(context);
 				
-				texness.setTextures(context);
 				//setmats (TODO: needs another stupid unsafe constant buffer)
 				
 				// plain pass
 				if (ddat.sceneType == SceneType.Light)
-					prettyness.lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
-				else if (prettyness.tech != null) // TODO: make this explicit
-					prettyness.tech.passes[0].apply(context);
+					prettyness.prettyness.lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
+				else if (prettyness.prettyness.tech != null) // TODO: make this explicit
+					prettyness.prettyness.tech.passes[0].apply(context);
 				else
 					goto noPlainPass;
 				
@@ -1970,7 +1998,7 @@ namespace UN11
 				
 			noPlainPass:
 				
-				if (ddat.sceneType == SceneType.View && prettyness.lightingMode == LightingMode.Full && prettyness.litTech != null)
+				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litTech != null)
 				{
 					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
 					
@@ -1983,7 +2011,7 @@ namespace UN11
 						l.lightBuffer.applyVStage(context);
 						l.lightBuffer.applyPStage(context);
 						
-						prettyness.litTech.passes[(int)l.lightType].apply(context);
+						prettyness.prettyness.litTech.passes[(int)l.lightType].apply(context);
 						
 						drawPrims(context, 1);
 					}
@@ -4342,7 +4370,7 @@ namespace UN11
 				if (tech == null || clcTexVerts == null)
 					return;
 		
-				texness.setTextures(context);
+				texness.applyTextures(context);
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
 				
 				// eddat thing
@@ -4553,7 +4581,7 @@ namespace UN11
 			public void drawOver(DeviceContext context, OverDrawData oddat, PreDrawData pddat)
 			{
 				targetRenderViewPair.apply(context, true, true);
-				texness.setTextures(context);
+				texness.applyTextures(context);
 				
 				// TODO: add alphaModes for overs
 				pddat.uneleven.blendStates.none.apply(context); // or something like this
@@ -4695,7 +4723,7 @@ namespace UN11
 				// don't forget to update!
 				apply(context);
 				
-				DrawData ddat = new DrawData(pddat, SceneType.View);
+				DrawData ddat = new DrawData(pddat, SceneType.Colour);
 				ddat.eyeBuffer = eyeBuffer;
 				ddat.targetBuffer = targetBuffer;
 				ddat.lightMapBuffer = null; // no light maps here
@@ -5345,10 +5373,21 @@ namespace UN11
 			List<iOff> iOffs = new List<iOff>();
 			List<lpTti> latePlaceTtis = new List<lpTti>();
 			
+			Dictionary<string, SceneType> sceneTypes = new Dictionary<string, SceneType>();
+			sceneTypes.Add("default", SceneType.Colour);
+			sceneTypes.Add("colour", SceneType.Colour);
+			sceneTypes.Add("light", SceneType.Light);
+			for (int i = 0; i < (int)SceneType.Length; i++)
+				sceneTypes.Add(i.ToString(), (SceneType)i);
+			
 			Model curModel = null;
 			Segment lastSegment = null; // if null, means curSeg should be added to the model
 			Segment curSegment = null;
 			Section curSection = null;
+			
+			SceneType curSceneType = SceneType.Length; // invalid value
+			Prettyness curPrettyness = null;
+			Texness curTexness = null;
 			
 			List<VertexPC> vPCs = new List<VertexPC>();
 			List<VertexPCT> vPCTs = new List<VertexPCT>();
@@ -5558,15 +5597,15 @@ namespace UN11
 							curSection = new Section(device, data[1]);
 							
 							curSection.sectionEnabled = true;
-							curSection.prettyness.lightingMode = LightingMode.Full;
 							
 							curSection.drawDecals = true;
 							curSection.acceptDecals = true;
 							
 							curSection.acceptDecals = true;
 							
-							curSection.prettyness.vertexType = vertexType;
 							curSection.indexOffset = indices.Count;
+							
+							curSection.setVertexType(vertexType);
 							
 							curModel.sections.Add(curSection);
 						}
@@ -5584,43 +5623,53 @@ namespace UN11
 							//curSection.mats[idx] = matrices[data[2]];
 							// TODO: fix mat
 						}
+						else if (data[0] == "pretty")
+						{
+							if (data.Length < 2)
+								throwFPE("Missing argument after \"vertex\" - expected a SceneType name");
+							
+							curSceneType = sceneTypes[data[1]];
+							
+							curTexness = curSection.prettynessess[(int)curSceneType].texness;
+							curPrettyness = curSection.prettynessess[(int)curSceneType].prettyness;
+						}
 						else if (data[0] == "texture")
 						{
-							curSection.texness.tex = createTexture(line.Substring(8));
-							curSection.texness.useTex = true;
+							curTexness.tex = createTexture(line.Substring(8));
+							curTexness.useTex = true;
 						}
 						else if (data[0] == "texture0")
 						{
-							curSection.texness.tex0 = createTexture(line.Substring(9));
-							curSection.texness.useTex0 = true;
+							curTexness.tex0 = createTexture(line.Substring(9));
+							curTexness.useTex0 = true;
 						}
 						else if (data[0] == "texture1")
 						{
-							curSection.texness.tex1 = createTexture(line.Substring(9));
-							curSection.texness.useTex1 = true;
+							curTexness.tex1 = createTexture(line.Substring(9));
+							curTexness.useTex1 = true;
 						}
 						else if (data[0] == "texture2")
 						{
-							curSection.texness.tex2 = createTexture(line.Substring(9));
-							curSection.texness.useTex2 = true;
+							curTexness.tex2 = createTexture(line.Substring(9));
+							curTexness.useTex2 = true;
 						}
 						else if (data[0] == "texture3")
 						{
-							curSection.texness.tex3 = createTexture(line.Substring(9));
-							curSection.texness.useTex3 = true;
+							curTexness.tex3 = createTexture(line.Substring(9));
+							curTexness.useTex3 = true;
 						}
 						else if (data[0] == "colmod")
 						{
-							curSection.prettyness.colMod = new Vector4(float.Parse(data[1]), float.Parse(data[2]), float.Parse(data[3]), float.Parse(data[4]));
+							curPrettyness.colMod = new Vector4(float.Parse(data[1]), float.Parse(data[2]), float.Parse(data[3]), float.Parse(data[4]));
 						}
 						else if (data[0] == "alpha")
 						{
 							if (data[1] == "none")
-								curSection.prettyness.alphaMode = AlphaMode.None;
+								curPrettyness.alphaMode = AlphaMode.None;
 							else if (data[1] == "nice")
-								curSection.prettyness.alphaMode = AlphaMode.Nice;
+								curPrettyness.alphaMode = AlphaMode.Nice;
 							else if (data[1] == "add")
-								curSection.prettyness.alphaMode = AlphaMode.Add;
+								curPrettyness.alphaMode = AlphaMode.Add;
 						}
 						else if (data[0] == "decals")
 						{
@@ -5656,11 +5705,11 @@ namespace UN11
 						{
 							if (data[1] == "none")
 							{
-								curSection.prettyness.lightingMode = LightingMode.None;
+								curPrettyness.lightingMode = LightingMode.None;
 							}
 							else if (data[1] == "full")
 							{
-								curSection.prettyness.lightingMode = LightingMode.Full;
+								curPrettyness.lightingMode = LightingMode.Full;
 							}
 						}
 						else if (data[0] == "manualnormals")
@@ -5794,27 +5843,27 @@ namespace UN11
 						}
 						else if (data[0] == "technique")
 						{
-							curSection.prettyness.tech = techniques[data[1]];
+							curPrettyness.tech = techniques[data[1]];
 						}
 						else if (data[0] == "technique_lit")
 						{
-							curSection.prettyness.litTech = techniques[data[1]];
+							curPrettyness.litTech = techniques[data[1]];
 						}
 						else if (data[0] == "technique_light")
 						{
-							curSection.prettyness.lightTech = techniques[data[1]];
+							curPrettyness.lightTech = techniques[data[1]];
 						}
 						else if (data[0] == "technique_decal")
 						{
-							curSection.prettyness.decalTech = techniques[data[1]];
+							curPrettyness.decalTech = techniques[data[1]];
 						}
 						else if (data[0] == "technique_dyndecal")
 						{
-							curSection.prettyness.dynamicDecalTech = techniques[data[1]];
+							curPrettyness.dynamicDecalTech = techniques[data[1]];
 						}
 						else if (data[0] == "technique_over")
 						{
-							curSection.prettyness.overTech = techniques[data[1]];
+							curPrettyness.overTech = techniques[data[1]];
 						}
 						else if (data[0] == "vertex")
 						{
@@ -5848,6 +5897,10 @@ namespace UN11
 							}
 							// add new
 							reps.Add(new strPair(data[1], line.Substring(5 + data[1].Length)));
+						}
+						else if (data[0] == "scenetype")
+						{
+							sceneTypes.Add(data[1], (SceneType)int.Parse(data[1]));
 						}
 						else if (data[0] == "ioff")
 						{
