@@ -27,6 +27,8 @@ namespace UN11
 {
 	public class UN11
 	{
+		public static Color transBlack = new Color(0);
+		
 		public static class Utils
 		{
 			public static void copy<T>(int si, T[] src, int di, T[] dst, int count)
@@ -134,6 +136,20 @@ namespace UN11
 			{
 				renderView = renderViewN;
 				stencilView = stencilViewN;
+			}
+			
+			public void applyRender(DeviceContext context, bool clearColor)
+			{
+				context.OutputMerger.SetRenderTargets(renderView);
+				if (clearColor)
+					context.ClearRenderTargetView(renderView, clearColour);
+			}
+			
+			public void applyStencil(DeviceContext context, bool clearDepth)
+			{
+				context.OutputMerger.SetRenderTargets(stencilView, (RenderTargetView)null);
+				if (clearDepth)
+					context.ClearDepthStencilView(stencilView, DepthStencilClearFlags.Depth, 1.0f, 0);
 			}
 			
 			public void apply(DeviceContext context, bool clearDepth, bool clearColor)
@@ -2010,18 +2026,14 @@ namespace UN11
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
 				
-				ddat.sideRenderViewPair.apply(context, true, true);
+				ddat.sideRenderViewPair.applyRender(context, true);
+				ddat.targetRenderViewPair.applyStencil(context, false);
 				ddat.targetTex.applyShaderResource(context, (int)TextureSlot.targetTex);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				
 				drawDraw(context, ddat);
 			}
 			
-			// TODO: consider re-working the how technique/sceneType thing so that draw draw
-			// takes a type of scene or something, and just swaps out the type of tech
-			// (e.g. SceneType.Lit -> use litTech (inc. tech (position 0) like it used to)
-			// and SceneType.Ligt -> use lightTech, etc. etc.)
-			// Would need then a pair for each thing (i.e. main model, decals, dyn decals)
 			public void drawDraw(DeviceContext context, DrawData ddat)
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
@@ -3034,6 +3046,34 @@ namespace UN11
 		}
 		// end test geometry
 		
+		// abstract sort of representation (class specific)
+		public class Anim : ANamed
+		{
+			public class Flow : ANamed
+			{
+				public Flow(string name) : base(name)
+				{
+					
+				}	
+			}
+			
+			public string animClass;
+			
+			public Anim(string name) : base(name)
+			{
+				
+			}
+		}
+		
+		// concrete animation for a specific model (model specific)
+		public class ModelAnim
+		{
+			public ModelAnim(Model mdl)
+			{
+				
+			}
+		}
+		
 		public class Model : ANamed
 		{
 			public Buffer vbuff;
@@ -3057,6 +3097,8 @@ namespace UN11
 			public VertexPCT[] verticesPCT;
 			public short[] indices;
 			
+			public string[] animClasses;
+			
 			public BBox modelBox;
 			public bool noCull;
 			
@@ -3065,6 +3107,8 @@ namespace UN11
 				segments = new List<Segment>();
 				allSegs = new List<Segment>();
 				sections = new List<Section>();
+				
+				animClasses = new string[0];
 			}
 			
 			public Model(Model gin, Device device, DeviceContext context, bool createOwnSections) : this(gin.name)
@@ -3144,6 +3188,11 @@ namespace UN11
 				{
 					s.createSegBox();
 				}
+			}
+			
+			public bool inAnimClass(string animClass)
+			{
+				return Array.IndexOf(animClasses, animClass) >= 0;
 			}
 			
 			public void update(ref Matrix trans, bool forceUpdate = false)
@@ -4759,8 +4808,8 @@ namespace UN11
 				targetRenderViewPair = new UN11.RenderViewPair();
 				sideRenderViewPair = new UN11.RenderViewPair();
 				
-				clearColour = Color.Black;
-				sideRenderViewPair.clearColour = Color.Black;
+				clearColour = transBlack;
+				sideRenderViewPair.clearColour = transBlack;
 				
 				matrices.Set(viewProjVP = new NamedMatrix("view_" + name + "_viewproj"));
 				matrices.Set(viewProjTex = new NamedMatrix("view_" + name + "_viewprojtex"));
@@ -5075,6 +5124,8 @@ namespace UN11
 
 				eyeBuffer.data.eyePos = new Vector4(lightPos, 1.0f);
 				eyeBuffer.data.eyeDir = new Vector4(lightDir, 1.0f);
+				eyeBuffer.data.targetTexData = vp.createTargetTexData();
+				
 				eyeBuffer.data.farDepth = projectionFar;
 				eyeBuffer.data.invFarDepth = 1.0f / projectionFar;
 			}
@@ -5658,6 +5709,10 @@ namespace UN11
 						else if (data[0] == "batchcopies")
 						{
 							curModel.batchCopies = int.Parse(data[1]);
+						}
+						else if (data[0] == "animclasses")
+						{
+							curModel.animClasses = line.Substring(12).Split(' ');
 						}
 						else if (data[0] == "techniques_dx11")
 						{
