@@ -1094,6 +1094,18 @@ namespace UN11
 				vp = new Viewport(x, y, w, h, near, far);
 			}
 			
+			public Matrix createVPMat()
+			{
+				float[] matDat = new float[16] {
+					(float)vp.Width / 2.0f, 0.0f, 0.0f, 0.0f,
+					0.0f, -(float)vp.Height / 2.0f, 0.0f, 0.0f,
+					0.0f, 0.0f, vp.MaxDepth - vp.MinDepth, 0.0f,
+					vp.X + (float)vp.Width / 2.0f, vp.Y + (float)vp.Height / 2.0f, vp.MinDepth, 1.0f
+				};
+				
+				return new Matrix(matDat);
+			}
+			
 			public void apply(DeviceContext context)
 			{
 				context.Rasterizer.SetViewport(vp);
@@ -1325,7 +1337,8 @@ namespace UN11
 		{
 			public const int defaultSlot = 0;
 			
-			public matrix viewProj; // 0, 16
+			public matrix viewProj;
+			public matrix vpMat;
 			public float4 eyePos;
 			public float4 eyeDir;
 			public float farDepth;
@@ -1945,6 +1958,7 @@ namespace UN11
 				ddat.targetRenderViewPair.apply(context, false, false);
 				ddat.sideTex.applyShaderResource(context, (int)TextureSlot.sideTex);
 				ddat.pddat.uneleven.depthStencilStates.zNone.apply(context);
+				ddat.pddat.uneleven.blendStates.addOneInvSrc.apply(context);
 				
 				prettyness.apply(context);
 				ddat.overness.apply(context);
@@ -1964,6 +1978,8 @@ namespace UN11
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				
 				ddat.targetBuffer.applyPStage(context);
+				
+				// vpMat (view port matrix) (done in eyeBuffer)
 				
 				drawDraw(context, ddat);
 			}
@@ -4638,10 +4654,12 @@ namespace UN11
 			public View view;
 			public GeometryDrawDataList geometryDrawDatas = new GeometryDrawDataList();
 			public LightList lights = new LightList();
+			public SceneType sceneType;
 			
-			public ViewDrawData(View viewN)
+			public ViewDrawData(View viewN, SceneType sceneTypeN)
 			{
 				view = viewN;
+				sceneType = sceneTypeN;
 			}
 			
 			public override void drawSlide(DeviceContext context, PreDrawData pddat)
@@ -4710,6 +4728,7 @@ namespace UN11
 				sideRenderViewPair = new UN11.RenderViewPair();
 				
 				clearColour = Color.Black;
+				sideRenderViewPair.clearColour = Color.Black;
 				
 				matrices.Set(viewProjVP = new NamedMatrix("view_" + name + "_viewproj"));
 				matrices.Set(viewProjTex = new NamedMatrix("view_" + name + "_viewprojtex"));
@@ -4723,7 +4742,7 @@ namespace UN11
 				// don't forget to update!
 				apply(context);
 				
-				DrawData ddat = new DrawData(pddat, SceneType.Colour);
+				DrawData ddat = new DrawData(pddat, vddat.sceneType);
 				ddat.eyeBuffer = eyeBuffer;
 				ddat.targetBuffer = targetBuffer;
 				ddat.lightMapBuffer = null; // no light maps here
@@ -4816,6 +4835,8 @@ namespace UN11
 			private void updateEyeCData()
 			{
 				matrix.Transpose(ref viewProjVP.mat, out eyeBuffer.data.viewProj);
+				eyeBuffer.data.vpMat = vp.createVPMat();
+
 				eyeBuffer.data.eyePos = new Vector4(camPos, 1.0f);
 				eyeBuffer.data.eyeDir = new Vector4(camDir, 1.0f);
 				eyeBuffer.data.farDepth = projectionFar;
@@ -5035,10 +5056,12 @@ namespace UN11
 			private void updateEyeCData()
 			{
 				matrix.Transpose(ref viewProjVP.mat, out eyeBuffer.data.viewProj);
-				//eyeBuffer.data.eyePos = new Vector4(camPos, 1.0f);
-				//eyeBuffer.data.eyeDir = new Vector4(camDir, 1.0f);
-				//eyeBuffer.data.farDepth = projectionFar;
-				//eyeBuffer.data.invFarDepth = 1.0f / projectionFar;
+				eyeBuffer.data.vpMat = vp.createVPMat();
+
+				eyeBuffer.data.eyePos = new Vector4(lightPos, 1.0f);
+				eyeBuffer.data.eyeDir = new Vector4(lightDir, 1.0f);
+				eyeBuffer.data.farDepth = projectionFar;
+				eyeBuffer.data.invFarDepth = 1.0f / projectionFar;
 			}
 			
 			private void updateLightMapCData()
@@ -6066,7 +6089,7 @@ namespace UN11
 			telem = new UN11.TexElem("disp", null, new Rectangle(0, 0, view.texHeight, view.texHeight));
 			
 			fddat = new UN11.FrameDrawData();
-			vddat = new UN11.ViewDrawData(view);
+			vddat = new UN11.ViewDrawData(view, UN11.SceneType.Colour);
 			oddat = new UN11.OverDrawData(over);
 			cddat = new UN11.FaceDrawData(face, vt);
 			
