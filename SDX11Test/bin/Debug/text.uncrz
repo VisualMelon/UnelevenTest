@@ -67,6 +67,8 @@ lpt tree
 sec tree
 
 shader_dx9 un_shade.fx
+
+pretty colour
 colmod 1 1 1 1
 technique simpleTex_alpha
 technique_lit simpleTex_alpha_lit

@@ -416,7 +416,11 @@ namespace UN11
 			linearWrap = 0,
 			pointWrap = 1,
 			linearBorder = 2,
-			pointBorder = 3
+			pointBorder = 3,
+			linearMirror = 4,
+			pointMirror = 5,
+			
+			nonMipLinearBorder = 6,
 		}
 		
 		// vertex decs
@@ -911,10 +915,10 @@ namespace UN11
 			{
 				int oidx;
 				if (TryGetIndex(item.name, out oidx))
-			    {
+				{
 					items.RemoveAt(oidx);
 					items.Insert(idx, item);
-			    }
+				}
 				else
 				{
 					items.Insert(idx, item);
@@ -1106,6 +1110,13 @@ namespace UN11
 				return new Matrix(matDat);
 			}
 			
+			// I think we sholdn't need the 0.5 ones.... (DX10 butchers texel alignment)
+			public Vector4 createTargetTexData()
+			{
+				Vector4 targTexData = new Vector4(0.5f / (float)vp.Width, 0.5f / (float)vp.Height, 1.0f / (float)vp.Width, 1.0f / (float)vp.Height);
+				return targTexData;
+			}
+			
 			public void apply(DeviceContext context)
 			{
 				context.Rasterizer.SetViewport(vp);
@@ -1285,10 +1296,16 @@ namespace UN11
 		
 		public class SamplerStates
 		{
+			// common states
 			public AppliableSamplerState linearWrap;
 			public AppliableSamplerState pointWrap;
 			public AppliableSamplerState linearBorder;
 			public AppliableSamplerState pointBorder;
+			public AppliableSamplerState linearMirror;
+			public AppliableSamplerState pointMirror;
+			
+			// odd ball states
+			public AppliableSamplerState nonMipLinearBorder;
 			
 			public SamplerStates(Device device)
 			{
@@ -1327,6 +1344,34 @@ namespace UN11
 				pointBorderDesc.BorderColor = Color4.Black;
 				pointBorderDesc.ComparisonFunction = Comparison.Never;
 				pointBorder = new AppliableSamplerState(device, pointBorderDesc);
+				
+				SamplerStateDescription linearMirrorDesc = new SamplerStateDescription();
+				linearMirrorDesc.AddressU = TextureAddressMode.Mirror;
+				linearMirrorDesc.AddressV = TextureAddressMode.Mirror;
+				linearMirrorDesc.AddressW = TextureAddressMode.Mirror;
+				linearMirrorDesc.Filter = Filter.MinMagMipLinear;
+				linearMirrorDesc.BorderColor = Color4.Black;
+				linearMirrorDesc.ComparisonFunction = Comparison.Never;
+				linearMirror = new AppliableSamplerState(device, linearMirrorDesc);
+				
+				SamplerStateDescription pointMirrorDesc = new SamplerStateDescription();
+				pointMirrorDesc.AddressU = TextureAddressMode.Mirror;
+				pointMirrorDesc.AddressV = TextureAddressMode.Mirror;
+				pointMirrorDesc.AddressW = TextureAddressMode.Mirror;
+				pointMirrorDesc.Filter = Filter.MinMagMipPoint;
+				pointMirrorDesc.BorderColor = Color4.Black;
+				pointMirrorDesc.ComparisonFunction = Comparison.Never;
+				pointMirror = new AppliableSamplerState(device, pointMirrorDesc);
+				
+				// FIXME: work out if need nonMip, and if so how to do it
+				SamplerStateDescription nonMipLinearBorderDesc = new SamplerStateDescription();
+				nonMipLinearBorderDesc.AddressU = TextureAddressMode.Border;
+				nonMipLinearBorderDesc.AddressV = TextureAddressMode.Border;
+				nonMipLinearBorderDesc.AddressW = TextureAddressMode.Border;
+				nonMipLinearBorderDesc.Filter = Filter.MinMagMipLinear;
+				nonMipLinearBorderDesc.BorderColor = Color4.Black;
+				nonMipLinearBorderDesc.ComparisonFunction = Comparison.Never;
+				nonMipLinearBorder = new AppliableSamplerState(device, nonMipLinearBorderDesc);
 			}
 			
 		}
@@ -1338,9 +1383,10 @@ namespace UN11
 			public const int defaultSlot = 0;
 			
 			public matrix viewProj;
-			public matrix vpMat;
+			public matrix targetVPMat;
 			public float4 eyePos;
 			public float4 eyeDir;
+			public float4 targetTexData;
 			public float farDepth;
 			public float invFarDepth;
 			public float pad2;
@@ -1408,15 +1454,6 @@ namespace UN11
 		{
 			public const int defaultSlot = 3;
 			
-			public float4 texData;
-		}
-		
-		[StructLayout(LayoutKind.Sequential)]
-		public struct TargetCData
-		{
-			public const int defaultSlot = 3;
-			
-			public matrix targetVPMat;
 			public float4 texData;
 		}
 		
@@ -1808,7 +1845,7 @@ namespace UN11
 				drawDecals = gin.drawDecals;
 				acceptDecals = gin.acceptDecals;
 				drawDynamicDecals = gin.drawDynamicDecals;
-			
+				
 				sectionEnabled = gin.sectionEnabled;
 				
 				mats = gin.mats; // TODO: what is this
@@ -1845,7 +1882,7 @@ namespace UN11
 				ddat.targetRenderViewPair.apply(context, false, false);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
-					
+				
 				ddat.eyeBuffer.applyVStage(context);
 				ddat.eyeBuffer.update(context);
 				
@@ -1881,7 +1918,7 @@ namespace UN11
 						Section msec = m.sections[secIndex];
 						if (msec.curDrawCull)
 							continue;
-					
+						
 						msec.prettynessess[(int)ddat.sceneType].apply(context);
 					}
 					
@@ -1915,7 +1952,7 @@ namespace UN11
 								Section msec = m.sections[secIndex];
 								if (msec.curDrawCull)
 									continue;
-							
+								
 								msec.prettynessess[(int)ddat.sceneType].apply(context);
 							}
 							
@@ -1976,10 +2013,6 @@ namespace UN11
 				ddat.sideRenderViewPair.apply(context, true, true);
 				ddat.targetTex.applyShaderResource(context, (int)TextureSlot.targetTex);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
-				
-				ddat.targetBuffer.applyPStage(context);
-				
-				// vpMat (view port matrix) (done in eyeBuffer)
 				
 				drawDraw(context, ddat);
 			}
@@ -2866,11 +2899,12 @@ namespace UN11
 		public class PreDrawData
 		{
 			public UN11 uneleven;
+			public long startTime;
 			
-			
-			public PreDrawData(UN11 unelevenN)
+			public PreDrawData(UN11 unelevenN, long startTimeN)
 			{
 				uneleven = unelevenN;
+				startTime = startTimeN;
 			}
 		}
 		
@@ -2887,7 +2921,6 @@ namespace UN11
 			public RenderViewPair sideRenderViewPair;
 			
 			public ConstBuffer<EyeCData> eyeBuffer;
-			public ConstBuffer<TargetCData> targetBuffer;
 			public ConstBuffer<LightMapCData> lightMapBuffer;
 			
 			public AppliableViewport vp;
@@ -3885,10 +3918,10 @@ namespace UN11
 			{
 				bbuffWidth = bbuffSizeX;
 				bbuffHeight = bbuffSizeY;
-		
+				
 				winWidth = winSizeX;
 				winHeight = winSizeY;
-		
+				
 				textScaleX = bbuffWidth / winWidth;
 				textScaleY = bbuffHeight / winHeight;
 				invTextScaleX = 1.0f / textScaleX;
@@ -3901,42 +3934,42 @@ namespace UN11
 				scaleX = 1.0f / invScaleX;
 				scaleY = 1.0f / invScaleY;
 			}
-		
+			
 			public float xToTextX(float x)
 			{
 				return x * textScaleX;
 			}
-		
+			
 			public float yToTextY(float y)
 			{
 				return y * textScaleY;
 			}
-		
+			
 			public float xToScreen(float x)
 			{
 				return (x - centreX) * scaleX;
 			}
-		
+			
 			public float xToWindow(float x)
 			{
 				return x * invScaleX + centreX;
 			}
-		
+			
 			public float yToScreen(float y)
 			{
 				return (y - centreY) * scaleY;
 			}
-		
+			
 			public float yToWindow(float y)
 			{
 				return y * invScaleY + centreY;
 			}
-		
+			
 			public float wToScreen(float w)
 			{
 				return w * scaleX;
 			}
-		
+			
 			public float hToScreen(float h)
 			{
 				return h * -scaleY;
@@ -4115,7 +4148,7 @@ namespace UN11
 			{
 				if (!enabled || !visible) // can't click disabled / invisble stuff
 					goto notap;
-		
+				
 				if (x >= clcRect.Left && x <= clcRect.Right && y >= clcRect.Top && y <= clcRect.Bottom)
 				{
 					if (tapChildren)
@@ -4128,7 +4161,7 @@ namespace UN11
 							}
 						}
 					}
-		
+					
 					if (clickable)
 					{
 						// no children taped, return me
@@ -4138,7 +4171,7 @@ namespace UN11
 						return true;
 					}
 				}
-		
+				
 			notap:
 				
 				xOut = 0;
@@ -4233,12 +4266,12 @@ namespace UN11
 				float right = vt.xToScreen(clcRect.Right);
 				float top = vt.yToScreen(clcRect.Top);
 				float bottom = vt.yToScreen(clcRect.Bottom);
-		
+				
 				float tleft = 0f;
 				float tright = 0f;
 				float ttop = 0f;
 				float tbottom = 0f;
-		
+				
 				if (texMode == TexMode.Fit)
 				{
 					// skip to answers
@@ -4255,7 +4288,7 @@ namespace UN11
 					float th = vt.hToScreen(texH) * texScaleY;
 					float sw = tw / bw; // suitably scaled
 					float sh = th / bh;
-		
+					
 					float hao;
 					float vao;
 					if ((texAlign & TexAlign.OffsetInset) > 0)
@@ -4268,10 +4301,10 @@ namespace UN11
 						hao = texHAlignOffset;
 						vao = texVAlignOffset;
 					}
-		
+					
 					TexAlign tah = texAlign & TexAlign.Horizontal;
 					TexAlign tav = texAlign & TexAlign.Verticle;
-		
+					
 					// zoomness
 					if (texMode == TexMode.Zoom)
 					{
@@ -4286,7 +4319,7 @@ namespace UN11
 							sh = 1.0f;
 						}
 					}
-		
+					
 					switch (tah)
 					{
 						case TexAlign.Fillh:
@@ -4306,7 +4339,7 @@ namespace UN11
 							tright = 0.5f + sw * 0.5f;
 							break;
 					}
-		
+					
 					switch (tav)
 					{
 						case TexAlign.Fillv:
@@ -4326,28 +4359,28 @@ namespace UN11
 							tbottom = 0.5f + sh * 0.5f;
 							break;
 					}
-		
+					
 					// tcoords describe where the image should be, need to transform
 					
 					float tsx = 1.0f / (tright - tleft);
 					float tsy = 1.0f / (tbottom - ttop);
-		
+					
 					tleft += hao;
 					tright += hao;
 					ttop += vao;
 					tbottom += vao;
-		
+					
 					tleft = 0 - tleft * tsx;
 					tright = 1.0f + (1.0f - tright) * tsx;
 					ttop = 0 - ttop * tsy;
 					tbottom = 1.0f + (1.0f - tbottom) * tsy;
 				}
-		
+				
 				clcTexVerts[0] = new VertexPCT(new VertexPC(left, top, 0, 1, 1, 1, -1), tleft, ttop); // negative tti means ignore tti
 				clcTexVerts[1] = new VertexPCT(new VertexPC(right, top, 0, 1, 1, 1, -1), tright, ttop);
 				clcTexVerts[2] = new VertexPCT(new VertexPC(left, bottom, 0, 1, 1, 1, -1), tleft, tbottom);
 				clcTexVerts[3] = new VertexPCT(new VertexPC(right, bottom, 0, 1, 1, 1, -1), tright, tbottom);
-		
+				
 				clcUseTexData = false; // default, may change below
 				/*if (texAlign & TXA_pixelOffset)
 				{
@@ -4385,7 +4418,7 @@ namespace UN11
 			{
 				if (tech == null || clcTexVerts == null)
 					return;
-		
+				
 				texness.applyTextures(context);
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
 				
@@ -4405,17 +4438,17 @@ namespace UN11
 				
 				dstream.Dispose();
 				context.UnmapSubresource(eddat.vbuff, 0);
-			
+				
 				context.InputAssembler.SetVertexBuffers(0, eddat.vbuffBinding);
 				//
 				
 //					effect.setcolMod((float*)&colMod);
 //					effect.setViewProj(&idMat);
 				// effect.setTicker(ticker); would be nice to have this information
-		
+				
 //					if (clcUseTexData)
 //						effect.setTextureData((float*)&clcTexData.x);
-		
+				
 				foreach (Pass p in tech.passes)
 				{
 					p.apply(context);
@@ -4714,7 +4747,6 @@ namespace UN11
 			public NamedMatrix viewProjTex;
 			
 			private ConstBuffer<EyeCData> eyeBuffer;
-			private ConstBuffer<TargetCData> targetBuffer;
 			private Overness overness;
 			
 			public View(Device device, string name, MatrixCollection matrices) : base(name)
@@ -4734,7 +4766,6 @@ namespace UN11
 				matrices.Set(viewProjTex = new NamedMatrix("view_" + name + "_viewprojtex"));
 				
 				eyeBuffer = new ConstBuffer<EyeCData>(device, EyeCData.defaultSlot);
-				targetBuffer = new ConstBuffer<TargetCData>(device, TargetCData.defaultSlot);
 			}
 			
 			public void drawView(DeviceContext context, ViewDrawData vddat, PreDrawData pddat)
@@ -4744,7 +4775,6 @@ namespace UN11
 				
 				DrawData ddat = new DrawData(pddat, vddat.sceneType);
 				ddat.eyeBuffer = eyeBuffer;
-				ddat.targetBuffer = targetBuffer;
 				ddat.lightMapBuffer = null; // no light maps here
 				ddat.targetTex = targetTex;
 				ddat.targetRenderViewPair = targetRenderViewPair;
@@ -4787,7 +4817,6 @@ namespace UN11
 				texHeight = texHeightN;
 				
 				vp = new AppliableViewport(0, 0, texWidth, texHeight, 0.0f, 1.0f);
-				updateTargetCData();
 			}
 			
 			public void initTarget(Device device, Format format, TextureCollection textures)
@@ -4835,27 +4864,14 @@ namespace UN11
 			private void updateEyeCData()
 			{
 				matrix.Transpose(ref viewProjVP.mat, out eyeBuffer.data.viewProj);
-				eyeBuffer.data.vpMat = vp.createVPMat();
-
+				eyeBuffer.data.targetVPMat = vp.createVPMat();
+				
 				eyeBuffer.data.eyePos = new Vector4(camPos, 1.0f);
 				eyeBuffer.data.eyeDir = new Vector4(camDir, 1.0f);
+				eyeBuffer.data.targetTexData = vp.createTargetTexData();
+
 				eyeBuffer.data.farDepth = projectionFar;
 				eyeBuffer.data.invFarDepth = 1.0f / projectionFar;
-			}
-			
-			private void updateTargetCData()
-			{
-				Vector4 texData = new Vector4(0.5f / texWidth, 0.5f / texHeight, 1.0f / texWidth, 1.0f / texHeight);
-				targetBuffer.data.texData = texData;
-				
-				float[] matDat = new float[16]{
-					(float)vp.vp.Width / 2.0f, 0.0f, 0.0f, 0.0f,
-					0.0f, -(float)vp.vp.Height / 2.0f, 0.0f, 0.0f,
-					0.0f, 0.0f, vp.vp.MaxDepth - vp.vp.MinDepth, 0.0f,
-					vp.vp.X + (float)vp.vp.Width / 2.0f, vp.vp.Y + (float)vp.vp.Height / 2.0f, vp.vp.MinDepth, 1.0f
-				};
-				
-				targetBuffer.data.targetVPMat = new Matrix(matDat);
 			}
 			
 			private void updateMats()
@@ -4879,7 +4895,6 @@ namespace UN11
 			{
 				updateMats();
 				updateEyeCData(); // must be done after mats
-				updateTargetCData();
 			}
 			
 			// so stuff below can be lazy
@@ -5056,7 +5071,7 @@ namespace UN11
 			private void updateEyeCData()
 			{
 				matrix.Transpose(ref viewProjVP.mat, out eyeBuffer.data.viewProj);
-				eyeBuffer.data.vpMat = vp.createVPMat();
+				eyeBuffer.data.targetVPMat = vp.createVPMat();
 
 				eyeBuffer.data.eyePos = new Vector4(lightPos, 1.0f);
 				eyeBuffer.data.eyeDir = new Vector4(lightDir, 1.0f);
@@ -5089,9 +5104,13 @@ namespace UN11
 			public void update()
 			{
 				updateMats();
-				updateEyeCData(); // must be done after mats
 				updateLightCData();
-				updateLightMapCData();
+				
+				if (useLightMap)
+				{
+					updateEyeCData(); // must be done after mats
+					updateLightMapCData();
+				}
 			}
 			
 			public void apply(DeviceContext context)
@@ -5154,6 +5173,10 @@ namespace UN11
 			samplerStates.pointWrap.Apply(context, (int)SamplerSlot.pointWrap);
 			samplerStates.linearBorder.Apply(context, (int)SamplerSlot.linearBorder);
 			samplerStates.pointBorder.Apply(context, (int)SamplerSlot.pointBorder);
+			samplerStates.linearMirror.Apply(context, (int)SamplerSlot.linearMirror);
+			samplerStates.pointMirror.Apply(context, (int)SamplerSlot.pointMirror);
+		
+			samplerStates.nonMipLinearBorder.Apply(context, (int)SamplerSlot.nonMipLinearBorder);
 		}
 		
 		private void tickTime()
@@ -5181,7 +5204,7 @@ namespace UN11
 		{
 			// some timing stuff
 			
-			PreDrawData pddat = new PreDrawData(this);
+			PreDrawData pddat = new PreDrawData(this, timing.curTime);
 			
 			applySamplers(context); // ah, the all important samplers...
 			
@@ -6223,7 +6246,7 @@ namespace UN11
 				//context.OutputMerger.SetTargets(depthView, renderView);
 				
 				vt = new UN11.ViewTrans(form.ClientSize.Width, form.ClientSize.Height, form.ClientSize.Width, form.ClientSize.Height);
-					
+				
 				// set up view with correct aspect ratio
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
 				view.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);

@@ -53,9 +53,11 @@ struct PS_Output
 
 cbuffer eyeBuffer : register(b0)
 {
-	matrix viewProj;// : packoffset(c0);
+	matrix viewProj;
+	matrix targetVPMat;
 	float4 eyePos;
 	float4 eyeDir;
+	float4 targetTexData;
 	float farDepth;
 	float invFarDepth;
 };
@@ -90,12 +92,6 @@ cbuffer overBuffer : register(b3)
 	float4 overTexData;
 };
 
-cbuffer targetBuffer : register(b3)
-{
-	matrix targetVPMat;
-	float4 targetTexData;
-};
-
 cbuffer sectionBuffer : register(b4)
 {
 	float4 colMod;
@@ -116,6 +112,10 @@ SamplerState linearWrapSampler : register( s0 );
 SamplerState pointWrapSampler : register( s1 );
 SamplerState linearBorderSampler : register( s2 );
 SamplerState pointBorderSampler : register( s3 );
+SamplerState linearMirrorSampler : register( s4 );
+SamplerState pointMirrorSampler : register( s5 );
+
+SamplerState nonMipLinearBorderSampler : register( s6 );
 
 
 
@@ -523,6 +523,45 @@ STD_MCR_VShade_Tex_Lit(Ortho)
 STD_MCR_VShade_Tex_Lit(Persp)
 STD_MCR_VShade_Tex_Lit(Point)
 
+PS_Output PShade_Tex(VS_Output_Tex inp)
+{
+	PS_Output outp = (PS_Output)0;
+	outp.col = inp.col * tex.Sample(linearWrapSampler, inp.txc);
+
+	outp.col = outp.col * colMod;
+	float alphaPreserve = outp.col.w;
+
+	outp.col = outp.col * (1.0 - lightCoof);
+
+	outp.col *= alphaPreserve;
+	outp.col.w = alphaPreserve;
+
+	return outp;
+}
+
+// PShade_Tex_Lit
+#define STD_MCR_PShade_Tex_Lit(lightName) \
+PS_Output PShade_Tex_Lit##lightName##(VS_Output_Tex inp) \
+{ \
+	PS_Output outp = (PS_Output)0; \
+	outp.col = inp.col * tex.Sample(linearWrapSampler, inp.txc); \
+ \
+	float4 lightMod = calcLightMod##lightName##(inp.lmc); \
+ \
+	outp.col = outp.col * colMod; \
+	float alphaPreserve = outp.col.w; \
+ \
+	outp.col = outp.col * (lightMod * inp.lit + lightAmbient) * lightCoof; \
+ \
+	outp.col *= alphaPreserve; \
+	outp.col.w = 0; \
+	return outp; \
+}
+
+STD_MCR_PShade_Tex_Lit(Ortho)
+STD_MCR_PShade_Tex_Lit(Persp)
+STD_MCR_PShade_Tex_Lit(Point)
+
 PS_Output PShade_Tex_Alpha(VS_Output_Tex inp)
 {
 	PS_Output outp = (PS_Output)0;
@@ -627,3 +666,73 @@ PS_Output PShade_Face_Border(VS_Output_Tex inp)
 }
 
 
+
+
+
+
+
+// test shaders
+
+
+VS_Output_Tex VShade_Tex_Test(VS_Input_Tex inp)
+{
+	VS_Output_Tex outp = (VS_Output_Tex)0;
+	inp.pos = mul(inp.pos, transarr[inp.tti]);
+	inp.nrm = mul(inp.nrm, transarr[inp.tti]);
+	outp.pos = mul(inp.pos, viewProj);
+	outp.altPos = outp.pos;
+	outp.col = inp.col;
+	outp.txc = inp.txc;
+
+	return outp;
+}
+
+PS_Output PShade_Tex_Test(VS_Output_Tex inp)
+{
+	// altPos is NOT w depth!
+
+	PS_Output outp = (PS_Output)0;
+	float wNum = inp.altPos.w;
+
+	inp.altPos = mul(inp.altPos, targetVPMat);
+	float2 tcoords = float2(inp.altPos.x, inp.altPos.y);
+
+	tcoords.x /= wNum;
+	tcoords.y /= wNum;
+
+	tcoords.x *= targetTexData.z;
+	tcoords.y *= targetTexData.w;
+
+	tcoords.x += targetTexData.x;
+	tcoords.y += targetTexData.y;
+
+	// get front colour
+	outp.col = PShade_Tex(inp).col;
+	float alphaPreserve = outp.col.w;
+	//outp.col *= alphaPreserve; // done in PShade_Tex
+
+	// pour in the back colour
+	//float off = sin(ticker) * 3.0;
+
+	float prop = 1.0 - alphaPreserve;
+	float qprop = prop * alphaPreserve * 0.2;
+
+	float off = 3.0;
+	outp.col = outp.col + targetTex.Sample(nonMipLinearBorderSampler, tcoords) * (prop - qprop * 4.0);
+	tcoords.x += targetTexData.x * 1.0 * off;
+	outp.col = outp.col + targetTex.Sample(nonMipLinearBorderSampler, tcoords) * qprop;
+	tcoords.x -= targetTexData.x * 2.0 * off;
+	outp.col = outp.col + targetTex.Sample(nonMipLinearBorderSampler, tcoords) * qprop;
+	tcoords.x += targetTexData.x * 1.0 * off;
+	tcoords.y += targetTexData.y * 1.0 * off;
+	outp.col = outp.col + targetTex.Sample(nonMipLinearBorderSampler, tcoords) * qprop;
+	tcoords.y -= targetTexData.y * 2.0 * off;
+	outp.col = outp.col + targetTex.Sample(nonMipLinearBorderSampler, tcoords) * qprop;
+
+	//outp.col = outp.col + targetTex.Sample(nonMipLinearBorderSampler, tcoords) * alphaPreserve;
+
+	// flat alpha
+	outp.col.w = 1;
+
+	return outp;
+}
