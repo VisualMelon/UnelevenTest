@@ -365,6 +365,14 @@ namespace UN11
 				}
 			}
 			
+			public float curTimeSeconds
+			{
+				get
+				{
+					return toSeconds(sw.ElapsedTicks);
+				}
+			}
+			
 			// these effectivly effect all of the subordinates, probably should never be used
 			public void stop()
 			{
@@ -1026,9 +1034,29 @@ namespace UN11
 				}
 			}
 			
-			public int Count()
+			public T this[int idx]
 			{
-				return items.Count;
+				get
+				{
+					return items[idx];
+				}
+				set
+				{
+					items[idx] = value;
+				}
+			}
+			
+			public int Count
+			{
+				get
+				{
+					return items.Count;
+				}
+			}
+			
+			public void Trim()
+			{
+				items.TrimExcess();
 			}
 			
 			public System.Collections.IEnumerator GetEnumerator()
@@ -2912,11 +2940,13 @@ namespace UN11
 		{
 			public UN11 uneleven;
 			public long startTime;
+			public long prevStartTime;
 			
-			public PreDrawData(UN11 unelevenN, long startTimeN)
+			public PreDrawData(UN11 unelevenN, long startTimeN, long prevStartTimeN)
 			{
 				uneleven = unelevenN;
 				startTime = startTimeN;
+				prevStartTime = prevStartTimeN;
 			}
 		}
 		
@@ -2984,49 +3014,49 @@ namespace UN11
 			public Cube(Device device) : base("TestCube")
 			{
 				vbuff = Buffer.Create(device, BindFlags.VertexBuffer, new UN11.VertexPC[]
-				                      {
-				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)), // Front
-				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-				                      	
-				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)), // BACK
-				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-				                      	
-				                      	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)), // Top
-				                      	new UN11.VertexPC(new Vector4(-1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-				                      	
-				                      	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)), // Bottom
-				                      	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-				                      	
-				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)), // Left
-				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-				                      	
-				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)), // Right
-				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-				                      });
+									  {
+									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)), // Front
+									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+									  	
+									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)), // BACK
+									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+									  	
+									  	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)), // Top
+									  	new UN11.VertexPC(new Vector4(-1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+									  	
+									  	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)), // Bottom
+									  	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+									  	
+									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)), // Left
+									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+									  	
+									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)), // Right
+									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+									  });
 			}
 			
 			public void draw(DeviceContext context, CubeDrawData cddat, DrawData ddat)
@@ -3049,32 +3079,462 @@ namespace UN11
 		// abstract sort of representation (class specific)
 		public class Anim : ANamed
 		{
-			public class Flow : ANamed
+			public class ActList : List<Act>
 			{
-				public Flow(string name) : base(name)
-				{
-					
-				}	
 			}
 			
+			public abstract class Act
+			{
+				public Act()
+				{
+				}
+				
+				public abstract Act bake(Model mdl); // returns a new version of me, but with the model specifics baked in
+				public abstract void run(Model mdl, float s, float e, float d); // manipulate the given model (start, end, duration)
+			}
+			
+			public abstract class SegmentAct : Act
+			{
+				public string targetSegmentName {get; private set;}
+				public int targetSegmentIdx {get; private set;}
+				
+				protected SegmentAct(string targetSegmentNameN) : base()
+				{
+					targetSegmentName = targetSegmentNameN;
+					targetSegmentIdx = -1;
+				}
+				
+				protected SegmentAct(SegmentAct gin) : this(gin.targetSegmentName)
+				{
+					targetSegmentIdx = gin.targetSegmentIdx;
+				}
+				
+				private SegmentAct(SegmentAct gin, int segIdx) : this(gin)
+				{
+					targetSegmentIdx = segIdx;
+				}
+				
+				protected void bakeMe(Model mdl)
+				{
+					targetSegmentIdx = mdl.getSegIdx(targetSegmentName);
+				}
+			}
+			
+			public abstract class SectionAct : Act
+			{
+				public virtual string targetSectionName {get; private set;}
+				public int targetSectionIdx {get; private set;}
+				
+				protected SectionAct(string targetSectionNameN) : base()
+				{
+					targetSectionName = targetSectionNameN;
+					targetSectionIdx = -1;
+				}
+				
+				private SectionAct(SectionAct gin) : this(gin.targetSectionName)
+				{
+					targetSectionIdx = gin.targetSectionIdx;
+				}
+				
+				protected void bakeMe(Model mdl)
+				{
+					targetSectionIdx = mdl.getSecIdx(targetSectionName);
+				}
+			}
+			
+			public class OffsetAct : SegmentAct
+			{
+				public Vector3 dest;
+				
+				public OffsetAct(string targetSegmentName, Vector3 destN) : base(targetSegmentName)
+				{
+					dest = destN;
+				}
+				
+				private OffsetAct(OffsetAct gin) : base(gin)
+				{
+					dest = gin.dest;	
+				}
+				
+				public override Act bake(Model mdl)
+				{
+					OffsetAct a = new OffsetAct(this);
+					a.bakeMe(mdl);
+					return a;
+				}
+				
+				public static float propFunc(float t, float d)
+				{
+					return (float)Math.Sin((t - d) * Math.PI - Math.PI / 2.0f) + 1.0f;
+				}
+				
+				public static float calcProp(float s, float e, float d)
+				{
+					float ps = propFunc(s, d);
+					float pe = propFunc(e, d);
+					float pd = propFunc(d, d);
+					
+					return (pe - ps) / (pd - ps);
+				}
+				
+				public override void run(Model mdl, float s, float e, float d)
+				{
+					Segment seg = mdl.allSegs[targetSegmentIdx];
+					
+					Vector3 remaining = dest - seg.or.offset;
+					
+					float prop = calcProp(s, e, d);
+					
+					seg.or.offset = seg.or.offset + remaining * prop;
+				}
+			}
+			
+			public class RotationAct : SegmentAct
+			{
+				public Vector3 dest;
+				
+				public RotationAct(string targetSegmentName, Vector3 destN) : base(targetSegmentName)
+				{
+					dest = destN;
+				}
+				
+				private RotationAct(RotationAct gin) : base(gin)
+				{
+					dest = gin.dest;
+				}
+				
+				public override Act bake(Model mdl)
+				{
+					RotationAct a = new RotationAct(this);
+					a.bakeMe(mdl);
+					return a;
+				}
+				
+				public static float propFunc(float t, float d)
+				{
+					return (float)Math.Sin((t - d) * Math.PI - Math.PI / 2.0f) + 1.0f;
+				}
+				
+				public static float calcProp(float s, float e, float d)
+				{
+					float ps = propFunc(s, d);
+					float pe = propFunc(e, d);
+					float pd = propFunc(d, d);
+					
+					return (pe - ps) / (pd - ps);
+				}
+				
+				public override void run(Model mdl, float s, float e, float d)
+				{
+					Segment seg = mdl.allSegs[targetSegmentIdx];
+					
+					Vector3 remaining = dest - seg.or.rotation;
+					
+					float prop = calcProp(s, e, d);
+					
+					seg.or.rotation = seg.or.rotation + remaining * prop;
+				}
+			}
+			
+			public class RotateAct : SegmentAct
+			{
+				public Vector3 delta;
+				
+				public RotateAct(string targetSegmentName, Vector3 deltaN) : base(targetSegmentName)
+				{
+					delta = deltaN;
+				}
+				
+				private RotateAct(RotateAct gin) : base(gin)
+				{
+					delta = gin.delta;
+				}
+				
+				public override Act bake(Model mdl)
+				{
+					RotateAct a = new RotateAct(this);
+					a.bakeMe(mdl);
+					return a;
+				}
+				
+				public static float propFunc(float t, float d)
+				{
+					return t / d;
+				}
+				
+				public static float calcProp(float s, float e, float d)
+				{
+					float ps = propFunc(s, d);
+					float pe = propFunc(e, d);
+					
+					return (pe - ps);
+				}
+				
+				public override void run(Model mdl, float s, float e, float d)
+				{
+					Segment seg = mdl.allSegs[targetSegmentIdx];
+					
+					float prop = calcProp(s, e, d);
+					
+					seg.or.rotation = seg.or.rotation + delta * prop;
+					
+					seg.requiresUpdate = true;
+				}
+			}
+			
+			public class MotionList : NamedList<Motion>
+			{
+			}
+			
+			public class Motion : ANamed
+			{
+				public ActList acts;
+				public float duration;
+				
+				public Motion(string name) : base(name)
+				{
+					acts = new ActList();
+				}
+				
+				private Motion(Motion gin, Model mdl) : this(gin.name)
+				{
+					acts = new ActList();
+					
+					foreach (Act a in gin.acts)
+					{
+						acts.Add(a.bake(mdl));
+					}
+					
+					acts.TrimExcess();
+					
+					duration = gin.duration;
+				}
+
+				public Motion bake(Model mdl)
+				{
+					return new Motion(this, mdl);
+				}
+				
+				public bool run(Model mdl, ref float s, ref float step)
+				{
+					float e = s + step;
+					
+					bool beyond = e > duration;
+					
+					if (beyond)
+					{
+						step = e - duration;
+						e = duration;
+					}
+					else
+					{
+						step = 0f;
+					}
+					
+					foreach (Act a in acts)
+					{
+						a.run(mdl, s, e, duration);
+					}
+					
+					if (beyond)
+						s = 0f;
+					else
+						s = e;
+					
+					return beyond;
+				}
+			}
+			
+			public class FlowList : NamedList<Flow>
+			{
+			}
+			
+			public class Flow : ANamed
+			{
+				public MotionList motions;
+				public int curMotion = 0;
+				public int startMotion = 0;
+				
+				// state
+				public float s;
+				
+				public Flow(string name) : base(name)
+				{
+					motions = new MotionList();
+				}
+				
+				// bake
+				private Flow(Flow gin, Model mdl) : this(gin.name)
+				{
+					motions = new MotionList();
+				
+					foreach (Motion m in gin.motions)
+					{
+						motions.Add(m.bake(mdl));
+					}
+					
+					motions.Trim();
+				}
+				
+				// clone
+				private Flow(Flow gin) : this(gin.name)
+				{
+					motions = gin.motions;
+				}
+
+				public Flow bake(Model mdl)
+				{
+					return new Flow(this, mdl);
+				}
+
+				public Flow clone()
+				{
+					return new Flow(this);
+				}
+				
+				public void reset()
+				{
+					curMotion = startMotion;
+					s = 0f;
+				}
+				
+				public void run(Model mdl, float step)
+				{
+					while (true)
+					{
+						if (motions[curMotion].run(mdl, ref s, ref step))
+						{
+							curMotion++;
+							if (curMotion >= motions.Count)
+								curMotion = 0;
+						}
+						else
+							break;
+					}
+				}
+			}
+			
+			// real stuff
 			public string animClass;
+			
+			public FlowList flows;
+			
+			public bool baked {get; private set;}
 			
 			public Anim(string name) : base(name)
 			{
-				
+				baked = false;
+				flows = new FlowList();
 			}
+			
+			// bake
+			private Anim(Anim gin, Model mdl) : base(gin.name)
+			{
+				baked = true;
+				flows = new FlowList();
+				
+				foreach (Flow f in gin.flows)
+				{
+					flows.Add(f.bake(mdl));
+				}
+				
+				flows.Trim();
+			}
+			
+			// clone
+			private Anim(Anim gin) : base(gin.name)
+			{
+				baked = false;
+				flows = new FlowList();
+				
+				foreach (Flow f in gin.flows)
+				{
+					flows.Add(f.clone());
+				}
+				
+				flows.Trim();
+			}
+			
+			public Anim bake(Model mdl)
+			{
+				return new Anim(this, mdl);
+			}
+			
+			public Anim clone()
+			{
+				return new Anim(this);
+			}
+			
+			public void reset()
+			{
+				foreach (Flow f in flows)
+				{
+					f.reset();
+				}
+			}
+			
+			public void run(Model mdl, float step)
+			{
+				foreach (Flow f in flows)
+				{
+					f.run(mdl, step);
+				}
+			}
+		}
+		
+		public class AnimCollection : NamedCollection<Anim>
+		{
 		}
 		
 		// concrete animation for a specific model (model specific)
 		public class ModelAnim
 		{
-			public ModelAnim(Model mdl)
+			private Model mdl;
+			private Anim anim;
+			
+			public ModelAnim(Model mdlN)
 			{
+				mdl = mdlN;
+				anim = null;
+			}
+			
+			public void SetAnim(Anim a)
+			{
+				// might not want to do this test, too easy to make needlessly expensive
+				if (a.baked)
+				{
+					// assume it's the right type
+					anim = a.clone();
+				}
+				else
+				{
+					anim = a.bake(mdl);
+				}
+			}
 				
+			public void run(float step)
+			{
+				if (anim == null)
+					return;
+				
+				anim.run(mdl, step);
+			}
+			
+			public void reset()
+			{
+				if (anim == null)
+					return;
+				
+				anim.reset();
+			}
+			
+			public void clear()
+			{
+				anim = null;
 			}
 		}
 		
-		public class Model : ANamed
+		public class Model : ANamed, IFrameAnimable
 		{
 			public Buffer vbuff;
 			public VertexBufferBinding vbuffBinding;
@@ -3101,6 +3561,7 @@ namespace UN11
 			
 			public BBox modelBox;
 			public bool noCull;
+			public ModelAnim anim;
 			
 			public Model(string name) : base(name)
 			{
@@ -3109,6 +3570,8 @@ namespace UN11
 				sections = new List<Section>();
 				
 				animClasses = new string[0];
+				
+				anim = new ModelAnim(this);
 			}
 			
 			public Model(Model gin, Device device, DeviceContext context, bool createOwnSections) : this(gin.name)
@@ -3160,6 +3623,17 @@ namespace UN11
 				return null;
 			}
 			
+			public int getSecIdx(string name)
+			{
+				for (int i = 0; i < sections.Count; i++)
+				{
+					if (sections[i].name == name)
+						return i;
+				}
+				
+				return -1;
+			}
+			
 			public Segment getSeg(string name)
 			{
 				foreach (Segment s in allSegs)
@@ -3169,6 +3643,17 @@ namespace UN11
 				}
 				
 				return null;
+			}
+			
+			public int getSegIdx(string name)
+			{
+				for (int i = 0; i < allSegs.Count; i++)
+				{
+					if (allSegs[i].name == name)
+						return i;
+				}
+				
+				return -1;
 			}
 			
 			public int getSegTti(string name)
@@ -3193,6 +3678,37 @@ namespace UN11
 			public bool inAnimClass(string animClass)
 			{
 				return Array.IndexOf(animClasses, animClass) >= 0;
+			}
+			
+			public bool inAnimClass(Anim a)
+			{
+				return inAnimClass(a.animClass);
+			}
+			
+			public void changeAnim(Anim a)
+			{
+				anim.SetAnim(a);
+				resetAnim();
+			}
+			
+			public void resetAnim()
+			{
+				anim.reset();
+			}
+			
+			public void clearAnim()
+			{
+				anim.clear();
+			}
+			
+			public void runAnim(float step)
+			{
+				anim.run(step);
+			}
+			
+			public void frameAnim(float step)
+			{
+				runAnim(step);
 			}
 			
 			public void update(ref Matrix trans, bool forceUpdate = false)
@@ -3648,7 +4164,7 @@ namespace UN11
 		{
 		}
 		
-		public abstract class Entity : ANamed
+		public abstract class Entity : ANamed, IFrameUpdateable
 		{
 			public Entity(string name) : base(name)
 			{
@@ -3656,6 +4172,11 @@ namespace UN11
 			}
 			
 			public abstract void update(bool forceUpdate);
+			
+			public void frameUpdate()
+			{
+				update(false);
+			}
 		}
 		
 		public class ModelEntityDrawData : GeometryDrawData
@@ -4750,7 +5271,7 @@ namespace UN11
 			}
 		}
 		
-		public class View : ASlide
+		public class View : ASlide, IFrameUpdateable
 		{
 			public int texWidth;
 			public int texHeight;
@@ -4946,6 +5467,11 @@ namespace UN11
 				updateEyeCData(); // must be done after mats
 			}
 			
+			public void frameUpdate()
+			{
+				update();
+			}
+			
 			// so stuff below can be lazy
 			public void apply(DeviceContext context)
 			{
@@ -4978,7 +5504,7 @@ namespace UN11
 		}
 		
 		// heavily based off view
-		public class Light : ASlide
+		public class Light : ASlide, IFrameUpdateable
 		{
 			public int texWidth;
 			public int texHeight;
@@ -5164,6 +5690,11 @@ namespace UN11
 				}
 			}
 			
+			public void frameUpdate()
+			{
+				update();
+			}
+			
 			public void apply(DeviceContext context)
 			{
 				vp.apply(context);
@@ -5188,6 +5719,23 @@ namespace UN11
 		{
 		}
 		
+		// TODO: work out a proper solution, don't like this
+		public interface IFrameAnimable
+		{
+			void frameAnim(float step);
+		}
+		
+		public interface IFrameUpdateable
+		{
+			void frameUpdate();
+		}
+		
+		public class FrameTickData
+		{
+			public List<IFrameAnimable> animable = new List<UN11.IFrameAnimable>();
+			public List<IFrameUpdateable> updateable = new List<UN11.IFrameUpdateable>();
+		}
+		
 		// stuff for external stuff to throw at internal stuff
 		public class FrameDrawData
 		{
@@ -5195,26 +5743,35 @@ namespace UN11
 		}
 		
 		// UN11ness
+		
+		// stuff what is loaded
 		public ShaderBytecodeCollection bytecodes = new ShaderBytecodeCollection();
 		public TechniqueCollection techniques = new TechniqueCollection();
-		public MatrixCollection matrices = new MatrixCollection();
 		public TextureCollection textures = new TextureCollection();
-		
 		public ModelCollection models = new ModelCollection();
-		public SlideList slides = new SlideList();
+		public AnimCollection anims = new AnimCollection();
 		
+		// stuff what is slightly hard coded
 		public BlendStates blendStates;
 		public DepthStencilStates depthStencilStates;
 		public RasterizerStates rasterizerStates;
 		public SamplerStates samplerStates;
 		
+		// not sure
+		public SlideList slides = new SlideList();
+		
+		public MatrixCollection matrices = new MatrixCollection();
+		
 		public EventManager eventManager = new UN11.EventManager();
 		
+		// other
 		public int frames {get; private set;}
 		
 		public Timing timing;
 		private Timing.Span frameSpan;
 		public long lastFrameSpan {get; private set;}
+		public long prevStartTime {get; private set;}
+		public long curStartTime {get; private set;}
 		
 		public Device device {get; private set;}
 		
@@ -5233,8 +5790,9 @@ namespace UN11
 		private void tickTime()
 		{
 			frames++;
-			lastFrameSpan = frameSpan.ellapsed;
-			frameSpan.accumulate();
+			
+			prevStartTime = curStartTime;
+			curStartTime = timing.curTime;
 		}
 		
 		private void handleEvents()
@@ -5242,20 +5800,33 @@ namespace UN11
 			// queue tick
 			eventManager.queueEvent(new TickEvent(timing.curTime));
 			
-			
+			eventManager.handleAllEvents(); // or something like this
 		}
 		
-		public void tick()
+		public void tick(FrameTickData ftdat)
 		{
 			tickTime();
 			handleEvents();
+			
+			// FIXME: this whole ftdat thing needs rethinking
+			float step = Timing.toSeconds(curStartTime - prevStartTime);
+			
+			foreach (IFrameAnimable fa in ftdat.animable)
+			{
+				fa.frameAnim(step);
+			}
+			
+			foreach (IFrameUpdateable fu in ftdat.updateable)
+			{
+				fu.frameUpdate();
+			}
 		}
 		
 		public void drawFrame(DeviceContext context, FrameDrawData fddat)
 		{
 			// some timing stuff
 			
-			PreDrawData pddat = new PreDrawData(this, timing.curTime);
+			PreDrawData pddat = new PreDrawData(this, timing.curTime, prevStartTime);
 			
 			applySamplers(context); // ah, the all important samplers...
 			
@@ -5276,6 +5847,12 @@ namespace UN11
 			
 			timing = new Timing();
 			frameSpan = timing.newSpan("frameSpan");
+		}
+		
+		// not sure if this makes sense
+		public void start()
+		{
+			timing.start();
 		}
 		
 		public void disposeAll()
@@ -5462,6 +6039,134 @@ namespace UN11
 			return short.Parse(str);
 		}
 		
+		public static Vector3 parseVec3(string[] data, int offset)
+		{
+			return new Vector3(float.Parse(data[offset + 0]), float.Parse(data[offset + 1]), float.Parse(data[offset + 2]));
+		}
+		
+		public Anim.Act createAct(string line)
+		{
+			string[] data = line.Split(' ');
+			
+			if (data[0] == "offset_smth0 ")
+			{
+				return new Anim.OffsetAct(data[1], parseVec3(data, 2));
+			}
+			else if (data[0] == "rotation_smth0")
+			{
+				return new Anim.RotationAct(data[1], parseVec3(data, 2));
+			}
+			else if (data[0] == "rotate")
+			{
+				return new Anim.RotateAct(data[1], parseVec3(data, 2));
+			}
+			
+			return null;
+		}
+		
+		public int loadAnimsFromFile(String fileName, DeviceContext context)
+		{
+			int count = 0;
+			
+			List<strPair> reps = new List<strPair>();
+			
+			Anim curAnim = null;
+			Anim.Flow curFlow = null;
+			Anim.Motion curMotion = null;
+			
+			using (System.IO.StreamReader reader = new System.IO.StreamReader(fileName))
+			{
+				int lnum = 0;
+				string line = "";
+				
+				FileParsingExceptionThrower throwFPE = (msg) =>
+				{
+					throw new FileParsingException("loadAnimsFromFile", fileName, lnum, line, msg);
+				};
+				
+				while (!reader.EndOfStream)
+				{
+					lnum++;
+					line = reader.ReadLine();
+					
+					int ci = line.IndexOf("//");
+					if (ci != -1)
+						line.Substring(0, ci);
+					line = line.Trim();
+					if (line == "")
+						continue;
+					
+					if (line.StartsWith("rep "))
+					{
+						string[] rdata = line.Split(' ');
+						reps.Add(new strPair(rdata[1], line.Substring(5 + rdata[1].Length)));
+						continue;
+					}
+					else
+					{
+						foreach (strPair sp in reps)
+						{
+							line = line.Replace(sp.gin, sp.rpl);
+						}
+					}
+					
+					string[] data = line.Split(' ');
+					
+					if (data.Length > 0)
+					{
+						if (data[0] == "end")
+						{
+							if (data[1] == "anim")
+							{
+								
+							}
+							else if (data[1] == "flow")
+							{
+
+							}
+							else if (data[1] == "motion")
+							{
+								
+							}
+						}
+						if (data[0] == "anim")
+						{
+							curAnim = new Anim(data[1]);
+							anims.Add(curAnim);
+						}
+						else if (data[0] == "flow")
+						{
+							curFlow = new Anim.Flow(data[1]);
+							curAnim.flows.Add(curFlow);
+						}
+						else if (data[0] == "motion")
+						{
+							curMotion = new Anim.Motion(data[1]);
+							curFlow.motions.Add(curMotion);
+						}
+						else if (data[0] == "a")
+						{
+							curMotion.acts.Add(createAct(line.Substring(2)));
+						}
+						else if (data[0] == "class")
+						{
+							curAnim.animClass = data[1];
+						}
+						else if (data[0] == "duration")
+						{
+							curMotion.duration = float.Parse(data[1]);
+						}
+						else if (data[0] == "start")
+						{
+							curFlow.startMotion = curFlow.motions.Count;
+						}
+					}
+				}
+			}
+			
+			return count;
+		}
+		
 		public int loadModelsFromFile(String fileName, DeviceContext context)
 		{
 			int count = 0;
@@ -5521,6 +6226,9 @@ namespace UN11
 					
 					if (line.StartsWith("rep "))
 					{
+						string[] rdata = line.Split(' ');
+						reps.Add(new strPair(rdata[1], line.Substring(5 + rdata[1].Length)));
+						continue;
 					}
 					else
 					{
@@ -5623,6 +6331,8 @@ namespace UN11
 								curSegment = null;
 								manualNormals = false;
 								subOffset = false;
+								
+								count++;
 							}
 							else if (data[1] == "blend")
 							{
@@ -6099,6 +6809,7 @@ namespace UN11
 		UN11.OverDrawData oddat;
 		UN11.FaceDrawData cddat;
 		UN11.FrameDrawData fddat;
+		UN11.FrameTickData ftdat;
 		
 		Stopwatch clock;
 		
@@ -6119,7 +6830,7 @@ namespace UN11
 				BufferCount = 1,
 				ModeDescription =
 					new ModeDescription(form.ClientSize.Width, form.ClientSize.Height,
-					                    new Rational(60, 1), Format.R8G8B8A8_UNorm),
+										new Rational(60, 1), Format.R8G8B8A8_UNorm),
 				IsWindowed = true,
 				OutputHandle = form.Handle,
 				SampleDescription = new SampleDescription(1, 0),
@@ -6158,6 +6869,7 @@ namespace UN11
 			
 			// ....load some more stuff from files??
 			uneleven.loadModelsFromFile("text.uncrz", context);
+			uneleven.loadAnimsFromFile("textA.uncrz", context);
 			
 			// describe frame
 			view = new UN11.View(device, "main", uneleven.matrices);
@@ -6166,19 +6878,26 @@ namespace UN11
 			sun = new UN11.Light(device, "sun", uneleven.matrices);
 			telem = new UN11.TexElem("disp", null, new Rectangle(0, 0, view.texHeight, view.texHeight));
 			
+			ftdat = new UN11.FrameTickData();
 			fddat = new UN11.FrameDrawData();
 			vddat = new UN11.ViewDrawData(view, UN11.SceneType.Colour);
 			oddat = new UN11.OverDrawData(over);
 			cddat = new UN11.FaceDrawData(face, vt);
 			
+			cddat.elems.Add(telem);
+			
+			ftdat.updateable.Add(view);
+			
 			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(new UN11.Cube(device)));
 			vddat.lights.Add(sun);
+			ftdat.updateable.Add(sun);
 			
 			UN11.ModelEntity tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, true), "tent");
 			tent.update(true);
 			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
-			
-			cddat.elems.Add(telem);
+			ftdat.updateable.Add(tent);
+			ftdat.animable.Add(tent.mdl);
+			tent.mdl.changeAnim(uneleven.anims["tree_spin"]);
 			
 			// lots of trees?!
 			Random rnd = new Random();
@@ -6191,6 +6910,8 @@ namespace UN11
 				tent.or.offset = new Vector3(rnd.NextFloat(-n, n), -20, rnd.NextFloat(-n, n));
 				tent.update(true);
 				mmddat.models.Add(tent.mdl);
+				ftdat.updateable.Add(tent);
+				ftdat.animable.Add(tent.mdl);
 			}
 			vddat.geometryDrawDatas.Add(mmddat);
 			//
@@ -6231,6 +6952,8 @@ namespace UN11
 		
 		void perform()
 		{
+			uneleven.start();
+			
 			// Main loop
 			RenderLoop.Run(form, frame);
 
@@ -6280,18 +7003,18 @@ namespace UN11
 
 				// Create the depth buffer
 				depthBuffer = new Texture2D(device, new Texture2DDescription()
-				                            {
-				                            	Format = Format.D32_Float_S8X24_UInt,
-				                            	ArraySize = 1,
-				                            	MipLevels = 1,
-				                            	Width = form.ClientSize.Width,
-				                            	Height = form.ClientSize.Height,
-				                            	SampleDescription = new SampleDescription(1, 0),
-				                            	Usage = ResourceUsage.Default,
-				                            	BindFlags = BindFlags.DepthStencil,
-				                            	CpuAccessFlags = CpuAccessFlags.None,
-				                            	OptionFlags = ResourceOptionFlags.None
-				                            });
+											{
+												Format = Format.D32_Float_S8X24_UInt,
+												ArraySize = 1,
+												MipLevels = 1,
+												Width = form.ClientSize.Width,
+												Height = form.ClientSize.Height,
+												SampleDescription = new SampleDescription(1, 0),
+												Usage = ResourceUsage.Default,
+												BindFlags = BindFlags.DepthStencil,
+												CpuAccessFlags = CpuAccessFlags.None,
+												OptionFlags = ResourceOptionFlags.None
+											});
 
 				// Create the depth buffer view
 				depthView = new DepthStencilView(device, depthBuffer);
@@ -6377,12 +7100,10 @@ namespace UN11
 			// REAL STUFF
 			
 			// TODO: work out an UN11.updateAll() method or something, perhaps (I don't think this makes sense)
-			view.update();
-			sun.update();
 			telem.update(vt, true);
 
 
-			uneleven.tick();
+			uneleven.tick(ftdat);
 			uneleven.drawFrame(context, fddat);
 			
 
