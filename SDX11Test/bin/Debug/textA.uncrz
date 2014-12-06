@@ -45,6 +45,22 @@ end flow
 end anim
 
 
+anim tree_spin
+model tree0
+
+flow 0
+
+motion a
+a rotate tree 0 3.14 0
+duration 10
+end motion
+
+end flow
+
+end anim
+
+
+
 // anubis
 anim anubis_idle
 model anubis
@@ -92,7 +108,7 @@ duration 30
 end motion
 
 motion b
-a offset_smth0 one 0 20 0x
+a offset_smth0 one 0 20 0
 duration 250
 end motion
 

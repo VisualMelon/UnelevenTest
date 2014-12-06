@@ -629,6 +629,15 @@ PS_Output PShade_Over(VS_Output_Over inp)
 	return outp;
 }
 
+PS_Output PShade_Side_Over(VS_Output_Over inp)
+{
+	PS_Output outp = (PS_Output)0;
+
+	outp.col = sideTex.Sample(linearWrapSampler, inp.txc);
+
+	return outp;
+}
+
 
 
 

@@ -41,6 +41,11 @@ vertex over
 pass vs_4_0 VShade_Over ps_4_0 PShade_Over
 end tech
 
+tech simpleSideOver
+vertex over
+pass vs_4_0 VShade_Over ps_4_0 PShade_Side_Over
+end tech
+
 
 // face techniques
 
@@ -52,4 +57,12 @@ end tech
 tech simpleFaceBorder
 vertex PCT
 pass vs_4_0 VShade_Face ps_4_0 PShade_Face_Border
+end tech
+
+
+// test techniques
+
+tech simpleTex_test
+vertex PCT
+pass vs_4_0 VShade_Tex_Test ps_4_0 PShade_Tex_Test
 end tech
