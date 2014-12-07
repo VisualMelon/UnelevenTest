@@ -1770,6 +1770,7 @@ namespace UN11
 			
 			public Prettyness()
 			{
+				matrices = new NamedMatrix[MatrixCData.maxMats];
 			}
 			
 			public Prettyness(Prettyness gin)
@@ -6954,7 +6955,7 @@ namespace UN11
 			
 			ftdat = new UN11.FrameTickData();
 			fddat = new UN11.FrameDrawData();
-			vddat = new UN11.ViewDrawData(view, UN11.SceneType.Colour);
+			vddat = new UN11.ViewDrawData(view, UN11.SceneType.Light);
 			oddat = new UN11.OverDrawData(over);
 			cddat = new UN11.FaceDrawData(face, vt);
 			
