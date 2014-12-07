@@ -5679,6 +5679,9 @@ namespace UN11
 				ddat.targetTex = targetTex;
 				ddat.targetRenderViewPair = targetRenderViewPair;
 				ddat.vp = vp;
+				ddat.viewProjVP = viewProjVP.mat;
+				
+				targetRenderViewPair.apply(context, true, true);
 				
 				//pddat.uneleven.depthStencilStates.zReadWrite.
 				
@@ -5760,7 +5763,19 @@ namespace UN11
 			
 			private void updateLightMapCData()
 			{
-				// errhm
+				// TODO: WHAT IS GOING ON?!
+				if (useLightMap)
+				{
+					matrix.Transpose(ref viewProjTex.mat, out lightMapBuffer.data.lightViewProj); // texAligned
+				}
+				
+				lightMapBuffer.data.lightPos = new Vector4(lightPos, 1.0f);
+				lightMapBuffer.data.lightDir = new Vector4(lightDir, 1.0f);
+				lightMapBuffer.data.lightAmbient = lightAmbient;
+				lightMapBuffer.data.lightColMod = lightColMod;
+				lightMapBuffer.data.lightDepth = lightDepth;
+				lightMapBuffer.data.lightCoof = 1.0f; // HACK: are we removing this?
+				lightMapBuffer.data.lightType = (float)lightType;
 			}
 			
 			private void updateMats()
@@ -6996,7 +7011,7 @@ namespace UN11
 			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(new UN11.Cube(device)));
 			
 			vddat.lights.Add(sun);
-			//vddat.lights.Add(torch); // TODO: uncomment me when it's working
+			vddat.lights.Add(torch);
 			
 			ftdat.updateable.Add(sun);
 			ftdat.updateable.Add(torch);
@@ -7172,10 +7187,9 @@ namespace UN11
 				
 				// set up torch
 				torch.setDimension(view.texWidth, view.texHeight);
-				torch.useLightMap = true;
+				torch.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 50f);
 				torch.lightType = UN11.LightType.Persp;
-				torch.dimX = (float)Math.PI;
-				torch.dimY = (float)view.texWidth / (float)view.texHeight;
+				torch.useLightMap = true;
 				torch.lightDepth = 50;
 				torch.lightAmbient = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
 				torch.lightColMod = new Vector4(1, 1, 1, 1);
@@ -7185,6 +7199,7 @@ namespace UN11
 				torch.lightEnabled = true;
 				torch.patternTex = uneleven.createTexture("white.png");
 				torch.useLightPattern = true; // don't really have any other choice
+				torch.targetRenderViewPair.clearColour = Color.Black;
 				torch.dirNormalAt(new Vector3(10, 0, 10));
 				
 				// set up face
