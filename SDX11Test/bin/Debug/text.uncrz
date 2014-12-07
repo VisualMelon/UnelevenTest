@@ -72,7 +72,7 @@ pretty colour
 colmod 1 1 1 1
 technique simpleTex_alpha
 technique_lit simpleTex_alpha_lit
-technique_light simpleTex_alpha_light
+//technique_light simpleTex_alpha_light
 technique_decal simple_decal
 technique_dyndecal simpleTex_dynamicdecal
 technique_over simpleSideOver
@@ -80,6 +80,18 @@ texture tree0_tall.png
 lighting full
 dyndecals nodraw
 alpha none
+end pretty
+
+// this is COMPLETELY bodged, probably doesn't work, just put it in for testing
+pretty light
+colmod 1 1 1 1
+// only need technique_light
+technique_light simpleTex_alpha_light
+texture tree0_tall.png
+lighting none
+dyndecals nodraw
+alpha none
+end pretty
 
 f 0 2 1
 f 2 3 1

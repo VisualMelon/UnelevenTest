@@ -33,6 +33,12 @@ pass vs_4_0 VShade_Tex_LitPersp ps_4_0 PShade_Tex_Alpha_LitPersp
 pass vs_4_0 VShade_Tex_LitPoint ps_4_0 PShade_Tex_Alpha_LitPoint
 end tech
 
+tech simpleTex_alpha_light
+vertex PCT
+pass vs_4_0 VShade_Tex_LightOrtho ps_4_0 PShade_Tex_Alpha_LightOrtho
+pass vs_4_0 VShade_Tex_LightPersp ps_4_0 PShade_Tex_Alpha_LightPersp
+pass vs_4_0 VShade_Tex_LightPoint ps_4_0 PShade_Tex_Alpha_LightPoint
+end tech
 
 // side/over techniques
 

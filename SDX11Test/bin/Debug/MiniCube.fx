@@ -39,6 +39,12 @@ struct VS_Input_Over
 	float2 txc : TEXCOORD0;
 };
 
+struct VS_Output_Light
+{
+	float4 pos : POSITION0;
+	float4 altPos : TEXCOORD0;
+};
+
 struct VS_Output_Over
 {
 	float4 pos : SV_POSITION;
@@ -529,6 +535,20 @@ STD_MCR_VShade_Tex_Lit(Ortho)
 STD_MCR_VShade_Tex_Lit(Persp)
 STD_MCR_VShade_Tex_Lit(Point)
 
+// VShade_Tex_Light
+#define STD_MCR_VShade_Tex_Light(lightName) \
+VS_Output_Light VShade_Tex_Light##lightName##(VS_Input_Tex inp) \
+{ \
+	VS_Output_Light outp = (VS_Output_Light)0; \
+	outp.pos = lightTrans##lightName##VP(mul(inp.pos, transarr[inp.tti])); \
+	outp.altPos = outp.pos; \
+	return outp; \
+}
+
+STD_MCR_VShade_Tex_Light(Ortho)
+STD_MCR_VShade_Tex_Light(Persp)
+STD_MCR_VShade_Tex_Light(Point)
+
 PS_Output PShade_Tex(VS_Output_Tex inp)
 {
 	PS_Output outp = (PS_Output)0;
@@ -612,6 +632,28 @@ STD_MCR_PShade_Tex_Alpha_Lit(Ortho)
 STD_MCR_PShade_Tex_Alpha_Lit(Persp)
 STD_MCR_PShade_Tex_Alpha_Lit(Point)
 
+// PShade_Tex_Alpha_Light
+#define STD_MCR_PShade_Tex_Alpha_Light(lightName) \
+PS_Output PShade_Tex_Alpha_Light##lightName##(VS_Output_Tex inp) \
+{ \
+	float4 testCol = inp.col * tex.Sample(linearBorderSampler, inp.txc); \
+ \
+	float alphaPreserve = testCol.w; \
+	clip (alphaPreserve <= 0.9 ? -1 : 1); \
+ \
+	inp.altPos = lightUnTrans##lightName##(inp.altPos); \
+ \
+	float num = inp.altPos.z; \
+	PS_Output outp = (PS_Output)0; \
+	outp.col.x = num; \
+	outp.col.x = 1; \
+ \
+	return outp; \
+}
+
+STD_MCR_PShade_Tex_Alpha_Light(Ortho)
+STD_MCR_PShade_Tex_Alpha_Light(Persp)
+STD_MCR_PShade_Tex_Alpha_Light(Point)
 
 
 
