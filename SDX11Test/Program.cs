@@ -433,6 +433,8 @@ namespace UN11
 			tex3 = 4,
 			sideTex = 5,
 			targetTex = 5,
+			lightTex = 6,
+			lightPatternTex = 7,
 		}
 		
 		public enum SamplerSlot : int
@@ -976,6 +978,11 @@ namespace UN11
 						return;
 					}
 				}
+			}
+			
+			public bool Contains(T item)
+			{
+				return ContainsKey(item.name);
 			}
 			
 			public bool ContainsKey(string name)
@@ -1966,8 +1973,6 @@ namespace UN11
 				
 				ddat.pddat.uneleven.blendStates.none.apply(context);
 				
-				//setmats (TODO: needs another stupid unsafe constant buffer)
-				
 				// plain pass
 				if (ddat.sceneType == SceneType.Light)
 					prettyness.prettyness.lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
@@ -2094,8 +2099,6 @@ namespace UN11
 				
 				ddat.pddat.uneleven.blendStates.none.apply(context);
 				
-				//setmats (TODO: needs another stupid unsafe constant buffer)
-				
 				// plain pass
 				if (ddat.sceneType == SceneType.Light)
 					prettyness.prettyness.lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
@@ -2120,6 +2123,8 @@ namespace UN11
 						l.lightBuffer.update(context);
 						l.lightBuffer.applyVStage(context);
 						l.lightBuffer.applyPStage(context);
+						
+						l.applyTextures(context);
 						
 						prettyness.prettyness.litTech.passes[(int)l.lightType].apply(context);
 						
@@ -4686,6 +4691,9 @@ namespace UN11
 			void update(float offsetX, float offsetY, ViewTrans vt, bool force);
 			void draw(DeviceContext context, ElemDrawData Eddat, PreDrawData pddat);
 			bool getTaped(float x, float y, out IElem taped, out float xOut, out float yOut);
+			
+			void changeParent(IElem parentN);
+			void registerChild(IElem child);
 		}
 		
 		public abstract class AElem : IElem
@@ -4713,7 +4721,6 @@ namespace UN11
 			public AElem(string nameN, IElem parentN, Rectangle rectN)
 			{
 				name = nameN;
-				parent = parentN;
 				
 				rect = rectN;
 				
@@ -4727,6 +4734,16 @@ namespace UN11
 				
 				
 				needsUpdate = true;
+				
+				changeParent(parentN);
+			}
+			
+			public void changeParent(IElem parentN)
+			{
+				parent = parentN;
+				
+				if (parent != null)
+					parent.registerChild(this);
 			}
 			
 			public void update(ViewTrans vt, bool force)
@@ -4766,6 +4783,13 @@ namespace UN11
 			{
 				offsetX = rect.Left;
 				offsetY = rect.Top;
+			}
+			
+			// TODO: work this out, need to have remove, bring to front, send back, etc. etc. etc.
+			public void registerChild(IElem child)
+			{
+				if (!elems.Contains(child))
+					elems.Add(child);
 			}
 			
 			public void draw(DeviceContext context, ElemDrawData eddat, PreDrawData pddat)
@@ -5601,6 +5625,8 @@ namespace UN11
 			
 			public AppliableViewport vp;
 			
+			public TextureView patternTex;
+			
 			public NamedTexture targetTex;
 			public Texture2D targetStencilTex;
 			public RenderViewPair targetRenderViewPair;
@@ -5618,6 +5644,7 @@ namespace UN11
 			private ConstBuffer<LightMapCData> lightMapBuffer;
 			
 			public bool useLightMap;
+			public bool useLightPattern;
 			
 			public Light(Device device, string name, MatrixCollection matrices) : base(name)
 			{
@@ -5626,12 +5653,14 @@ namespace UN11
 				lightDir = new Vector3(1f, 0f, 0f);
 				lightUp = new Vector3(0f, 1f, 0f);
 				
+				targetRenderViewPair = new UN11.RenderViewPair();
+				
 				lightEnabled = true;
 				
 				lightType = LightType.Point;
 				
-				matrices.Set(viewProjVP = new NamedMatrix("view_" + name + "_viewproj"));
-				matrices.Set(viewProjTex = new NamedMatrix("view_" + name + "_viewprojtex"));
+				matrices.Set(viewProjVP = new NamedMatrix("light_" + name + "_viewproj"));
+				matrices.Set(viewProjTex = new NamedMatrix("light_" + name + "_viewprojtex"));
 				
 				lightBuffer = new ConstBuffer<LightCData>(device, LightCData.defaultSlot);
 				
@@ -5681,7 +5710,7 @@ namespace UN11
 			
 			public void initTarget(Device device, Format format, TextureCollection textures)
 			{
-				targetTex = createRenderNamedTexture(device, "view_" + name, texWidth, texHeight, format, out targetRenderViewPair.renderView);
+				targetTex = createRenderNamedTexture(device, "light_" + name, texWidth, texHeight, format, out targetRenderViewPair.renderView);
 				textures.Set(targetTex);
 			}
 			
@@ -5777,6 +5806,14 @@ namespace UN11
 				lightMapBuffer.applyVStage(context);
 			}
 			
+			public void applyTextures(DeviceContext context)
+			{
+				if (useLightMap)
+					targetTex.applyShaderResource(context, UN11.TextureSlot.lightTex);
+				if (useLightPattern)
+					patternTex.applyShaderResource(context, UN11.TextureSlot.lightPatternTex);
+			}
+			
 			public void setRenderTarget(DeviceContext context, bool clearDepth, bool clearColor)
 			{
 				targetRenderViewPair.apply(context, clearDepth, clearColor);
@@ -5831,7 +5868,7 @@ namespace UN11
 		public SamplerStates samplerStates;
 		
 		// not sure
-		public SlideList slides = new SlideList();
+		public SlideList slides = new SlideList(); // TODO: do we need this?
 		
 		public MatrixCollection matrices = new MatrixCollection();
 		
@@ -6879,10 +6916,12 @@ namespace UN11
 		UN11.Over over;
 		UN11.Face face;
 		UN11.Light sun;
+		UN11.Light torch;
 		UN11.TexElem telem;
 		UN11.ViewDrawData vddat;
 		UN11.OverDrawData oddat;
 		UN11.FaceDrawData cddat;
+		UN11.LightDrawData tddat;
 		UN11.FrameDrawData fddat;
 		UN11.FrameTickData ftdat;
 		
@@ -6929,20 +6968,8 @@ namespace UN11
 			factory = swapChain.GetParent<Factory>();
 			factory.MakeWindowAssociation(form.Handle, WindowAssociationFlags.IgnoreAll);
 
-			// Compile Vertex and Pixel shaders
-			// let's try it from a file! :D
+			// load some stuff from some files
 			uneleven.loadTechniquesFromFile("textT.uncrz");
-			/*
-			UN11.ShaderBytecodeDesc VSdesc = uneleven.loadShaderBytecode("MiniCube.fx", "VShade", "vs_4_0");
-			UN11.ShaderBytecodeDesc PSdesc = uneleven.loadShaderBytecode("MiniCube.fx", "PShade", "ps_4_0");
-			UN11.ShaderBytecodeDesc VSdesc2 = uneleven.loadShaderBytecode("MiniCube.fx", "VShade2", "vs_4_0");
-			UN11.ShaderBytecodeDesc PSdesc2 = uneleven.loadShaderBytecode("MiniCube.fx", "PShade2", "ps_4_0");
-
-			uneleven.createTechnique("dull", UN11.VertexType.VertexPC, VSdesc, PSdesc);
-			uneleven.createTechnique("dull2", UN11.VertexType.VertexPC, VSdesc2, PSdesc2);
-			 */
-			
-			// ....load some more stuff from files??
 			uneleven.loadModelsFromFile("text.uncrz", context);
 			uneleven.loadAnimsFromFile("textA.uncrz", context);
 			
@@ -6951,21 +6978,28 @@ namespace UN11
 			over = new UN11.Over(device, "main");
 			face = new UN11.Face(device, "main");
 			sun = new UN11.Light(device, "sun", uneleven.matrices);
+			torch = new UN11.Light(device, "torch", uneleven.matrices);
 			telem = new UN11.TexElem("disp", null, new Rectangle(0, 0, view.texHeight, view.texHeight));
 			
 			ftdat = new UN11.FrameTickData();
 			fddat = new UN11.FrameDrawData();
-			vddat = new UN11.ViewDrawData(view, UN11.SceneType.Light);
+			vddat = new UN11.ViewDrawData(view, UN11.SceneType.Colour);
 			oddat = new UN11.OverDrawData(over);
 			cddat = new UN11.FaceDrawData(face, vt);
+			tddat = new UN11.LightDrawData(torch);
+			tddat.geometryDrawDatas = vddat.geometryDrawDatas;
 			
 			cddat.elems.Add(telem);
 			
 			ftdat.updateable.Add(view);
 			
 			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(new UN11.Cube(device)));
+			
 			vddat.lights.Add(sun);
+			//vddat.lights.Add(torch); // TODO: uncomment me when it's working
+			
 			ftdat.updateable.Add(sun);
+			ftdat.updateable.Add(torch);
 			
 			UN11.ModelEntity tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, true), "tent");
 			tent.update(true);
@@ -6997,6 +7031,7 @@ namespace UN11
 			fddat.slideDrawDatas.Add(vddat);
 			fddat.slideDrawDatas.Add(oddat);
 			fddat.slideDrawDatas.Add(cddat);
+			fddat.slideDrawDatas.Add(tddat);
 
 			// Use clock
 			clock = new Stopwatch();
@@ -7123,6 +7158,35 @@ namespace UN11
 				over.tech = uneleven.techniques["simpleOver"];
 				over.clearColour = Color.DeepPink;
 				
+				// set up sun
+				sun.useLightMap = false;
+				sun.lightType = UN11.LightType.Point;
+				sun.dimX = 50;
+				sun.dimY = 50;
+				sun.lightDepth = 50;
+				sun.lightAmbient = new Vector4(0.5f, 0.5f, 0.5f, 0.5f);
+				//sun.lightColMod = new Vector4(1, 1, 1, 1);
+				sun.lightColMod = new Vector4(0, 0, 0, 0);
+				sun.lightPos = new Vector3(0, 10, 5);
+				sun.lightEnabled = true;
+				
+				// set up torch
+				torch.setDimension(view.texWidth, view.texHeight);
+				torch.useLightMap = true;
+				torch.lightType = UN11.LightType.Persp;
+				torch.dimX = (float)Math.PI;
+				torch.dimY = (float)view.texWidth / (float)view.texHeight;
+				torch.lightDepth = 50;
+				torch.lightAmbient = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
+				torch.lightColMod = new Vector4(1, 1, 1, 1);
+				torch.lightPos = new Vector3(0, 5, 0);
+				torch.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
+				torch.initTargetStencil(device);
+				torch.lightEnabled = true;
+				torch.patternTex = uneleven.createTexture("white.png");
+				torch.useLightPattern = true; // don't really have any other choice
+				torch.dirNormalAt(new Vector3(10, 0, 10));
+				
 				// set up face
 				face.setDimension(view.texWidth, view.texHeight);
 				face.initTarget(renderView);
@@ -7135,16 +7199,12 @@ namespace UN11
 				telem.rect = new Rectangle(0, 0, view.texWidth, view.texHeight);
 				telem.colmod = new Vector4(1f, 1f, 1f, 1f);
 				
-				// set up sun
-				sun.useLightMap = false;
-				sun.lightType = UN11.LightType.Point;
-				sun.dimX = 50;
-				sun.dimY = 50;
-				sun.lightDepth = 50;
-				sun.lightAmbient = new Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-				sun.lightColMod = new Vector4(1, 1, 1, 1);
-				sun.lightPos = new Vector3(0, 10, 5);
-				sun.lightEnabled = true;
+				// add some sub elements
+				UN11.TexElem lightViewElem = new UN11.TexElem("lightviewelem", telem, new Rectangle(0, 0, view.texWidth / 5, view.texHeight / 5));
+				lightViewElem.texness.tex = uneleven.textures["light_torch"];
+				lightViewElem.texness.useTex = true;
+				lightViewElem.tech = uneleven.techniques["simpleFace"];
+				lightViewElem.colmod = new Vector4(1f, 1f, 1f, 1f);
 				
 				// We are done resizing
 				userResized = false;
@@ -7171,6 +7231,8 @@ namespace UN11
 			
 			view.camPos = span;
 			view.dirNormalAt(Vector3.Zero);
+			torch.lightPos = span;
+			torch.dirNormalAt(Vector3.Zero);
 			
 			// REAL STUFF
 			
