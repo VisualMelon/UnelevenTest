@@ -97,6 +97,12 @@ cbuffer sectionBuffer : register(b4)
 	float4 colMod;
 };
 
+// probably want this guy incorportated into the sectionBuffer some time
+cbuffer matrixBuffer : register(b5)
+{
+	matrix mats[8]; // generic mats, use and abuse, my friends
+};
+
 // don't know if this works yet, we will find out
 Texture2D tex : register( t0 );
 Texture2D tex0 : register( t1 );

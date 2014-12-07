@@ -1493,6 +1493,16 @@ namespace UN11
 			public Vector4 vec0;
 		}
 		
+		[StructLayout(LayoutKind.Explicit, Size=MatrixCData.maxMats * sizeof(float) * 16)]
+		public struct MatrixCData
+		{
+			public const int defaultSlot = 5;
+			public const int maxMats = 120;
+			
+			[FieldOffsetAttribute(0)]
+			public Matrix mat0;
+		}
+		
 		[StructLayout(LayoutKind.Sequential)]
 		public struct OverCData
 		{
@@ -1745,9 +1755,9 @@ namespace UN11
 		{
 			public Vector4 colMod;
 			
-			public Technique tech;
+			public Technique tech; // plain pass
 			public Technique litTech;
-			public Technique lightTech;
+			public Technique lightTech; // plain pass
 			public Technique decalTech;
 			public Technique dynamicDecalTech;
 			public Technique overTech;
@@ -1755,6 +1765,8 @@ namespace UN11
 			public VertexType vertexType;
 			public AlphaMode alphaMode;
 			public LightingMode lightingMode;
+			
+			public NamedMatrix[] matrices;
 			
 			public Prettyness()
 			{
@@ -1774,6 +1786,8 @@ namespace UN11
 				vertexType = gin.vertexType;
 				alphaMode = gin.alphaMode;
 				lightingMode = gin.lightingMode;
+				
+				matrices = (NamedMatrix[])gin.matrices.Clone();
 			}
 			
 			// TODO: work out if this still needs to exist
@@ -1794,7 +1808,7 @@ namespace UN11
 			Light,
 			Free0,
 			
-			Length = 2 // don't forget to change me if you want more than 2
+			Length = 3 // don't forget to change me if you want more
 		}
 		
 		public class SectionPrettyness
@@ -1803,13 +1817,14 @@ namespace UN11
 			public Texness texness;
 			
 			public ConstBuffer<SectionCData> sectionBuffer;
+			public MatrixBuffer matBuffer;
 			
 			public SectionPrettyness(Device device)
 			{
 				texness = new Texness();
 				prettyness = new Prettyness();
 				
-				createSectionBuffer(device);
+				createBuffers(device);
 			}
 			
 			public SectionPrettyness(Device device, SectionPrettyness gin)
@@ -1817,26 +1832,35 @@ namespace UN11
 				texness = new Texness(gin.texness);
 				prettyness = new Prettyness(gin.prettyness);
 				
-				createSectionBuffer(device);
+				createBuffers(device);
 			}
 			
-			private void createSectionBuffer(Device device)
+			private void createBuffers(Device device)
 			{
 				sectionBuffer = new ConstBuffer<SectionCData>(device, SectionCData.defaultSlot);
+				matBuffer = new MatrixBuffer(device);
 			}
 			
 			public void update()
 			{
 				sectionBuffer.data.colMod = prettyness.colMod;
+				matBuffer.setValues(0, prettyness.matrices);
 			}
 			
 			public void apply(DeviceContext context)
 			{
+				// section buffer
 				sectionBuffer.update(context);
 				
 				sectionBuffer.applyVStage(context);
 				sectionBuffer.applyPStage(context);
 				
+				// matric buffer
+				matBuffer.update(context);
+				
+				matBuffer.apply(context);
+				
+				// other
 				texness.applyTextures(context);
 			}
 		}
@@ -1858,8 +1882,6 @@ namespace UN11
 			public bool drawDynamicDecals;
 			
 			public bool sectionEnabled; // whether it should draw or not
-			
-			public Matrix[] mats; // TODO: what is this
 			
 			public bool curDrawCull;
 			
@@ -1891,8 +1913,6 @@ namespace UN11
 				drawDynamicDecals = gin.drawDynamicDecals;
 				
 				sectionEnabled = gin.sectionEnabled;
-				
-				mats = gin.mats; // TODO: what is this
 			}
 			
 			private void drawPrims(DeviceContext context, int batchCount)
@@ -2670,6 +2690,58 @@ namespace UN11
 						maxY = vec.Y;
 					if (vec.Z > maxZ)
 						maxZ = vec.Z;
+				}
+			}
+		}
+		
+		public class MatrixBuffer
+		{
+			ConstBuffer<MatrixCData> matBuffer;
+			
+			public MatrixBuffer(Device device)
+			{
+				matBuffer = new ConstBuffer<MatrixCData>(device, MatrixCData.defaultSlot);
+			}
+			
+			public unsafe void update(DeviceContext context)
+			{
+				matBuffer.update(context);
+			}
+			
+			public void apply(DeviceContext context)
+			{
+				matBuffer.applyVStage(context);
+				matBuffer.applyPStage(context);
+			}
+			
+			public unsafe void setValues(int matOffet, NamedMatrix[] namedMats)
+			{
+				if (matOffet < 0 || matOffet + namedMats.Length > MatrixCData.maxMats)
+					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
+				
+				fixed (Matrix* matPtr = &matBuffer.data.mat0)
+				{
+					for (int i = 0; i < namedMats.Length; i++)
+					{
+						NamedMatrix nmat = namedMats[i];
+						
+						if (nmat != null)
+							matPtr[matOffet + i] = nmat.mat;
+					}
+				}
+			}
+			
+			public unsafe void setValues(int matOffet, Matrix[] mats)
+			{
+				if (matOffet < 0 || matOffet + mats.Length > MatrixCData.maxMats)
+					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
+				
+				fixed (Matrix* matPtr = &matBuffer.data.mat0)
+				{
+					for (int i = 0; i < mats.Length; i++)
+					{
+						matPtr[matOffet + i] = mats[i];
+					}
 				}
 			}
 		}
@@ -6351,6 +6423,9 @@ namespace UN11
 							{
 								curSection.triCount = (indices.Count - curSection.indexOffset) / 3;
 							}
+							else if (data[1] == "pretty")
+							{
+							}
 						}
 						else if (data[0] == "mdl")
 						{
@@ -6431,8 +6506,7 @@ namespace UN11
 						else if (data[0] == "mat")
 						{
 							int idx = int.Parse(data[1]);
-							//curSection.mats[idx] = matrices[data[2]];
-							// TODO: fix mat
+							curPrettyness.matrices[idx] = matrices[data[2]];
 						}
 						else if (data[0] == "pretty")
 						{
@@ -7099,7 +7173,6 @@ namespace UN11
 			
 			// REAL STUFF
 			
-			// TODO: work out an UN11.updateAll() method or something, perhaps (I don't think this makes sense)
 			telem.update(vt, true);
 
 
