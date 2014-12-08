@@ -1944,6 +1944,78 @@ namespace UN11
 			}
 			
 			// will lag behind drawDraw, don't worry about it (has a bit of draw as well)
+			public void drawBatched(DeviceContext context, DrawData ddat, ManyModelDrawData mmddat, int secIndex)
+			{
+				if (sectionEnabled == false)
+					return;
+				
+				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
+				
+				ddat.targetRenderViewPair.apply(context, false, false);
+				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
+				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
+				
+				ddat.eyeBuffer.applyVStage(context);
+				ddat.eyeBuffer.update(context);
+				
+				if (ddat.sceneType == SceneType.Light)
+				{
+					// this should probably actually do the checks
+					ddat.lightMapBuffer.applyVStage(context); // ??
+					ddat.lightMapBuffer.applyPStage(context); // ??
+					ddat.lightMapBuffer.update(context);
+				}
+				
+				prettyness.apply(context);
+				
+				CompoundTransArrBuffer compoundTransArrBuffer = mmddat.mdl.compoundTransArrBuffer;
+				
+				ddat.pddat.uneleven.blendStates.none.apply(context);
+				
+				// plain pass
+				if (ddat.sceneType == SceneType.Light)
+					prettyness.prettyness.lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
+				else if (prettyness.prettyness.tech != null) // TODO: make this explicit
+					prettyness.prettyness.tech.passes[0].apply(context);
+				else
+					goto noPlainPass;
+				
+				foreach (Model m in mmddat.models)
+				{
+					// TODO: culling, etc.
+					// I worry that the CompoundTransArrBuffer might have too much power...
+					compoundTransArrBuffer.appendNuts(m.transArr, context, drawPrims);
+				}
+				compoundTransArrBuffer.zeroNuts(context, drawPrims);
+				
+			noPlainPass:
+				
+				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litTech != null)
+				{
+					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
+					
+					foreach (Light l in ddat.lights)
+					{
+						if (!l.lightEnabled)
+							continue;
+						
+						l.lightBuffer.update(context);
+						l.lightBuffer.applyVStage(context);
+						l.lightBuffer.applyPStage(context);
+						
+						prettyness.prettyness.litTech.passes[(int)l.lightType].apply(context);
+						
+						foreach (Model m in mmddat.models)
+						{
+							// TODO: culling, etc.
+							compoundTransArrBuffer.appendNuts(m.transArr, context, drawPrims);
+						}
+						compoundTransArrBuffer.zeroNuts(context, drawPrims);
+					}
+				}
+			}
+			
+			// will lag behind drawDraw, don't worry about it (has a bit of draw as well)
 			public void drawMany(DeviceContext context, DrawData ddat, ManyModelDrawData mmddat, int secIndex)
 			{
 				if (sectionEnabled == false)
@@ -1983,6 +2055,7 @@ namespace UN11
 				
 				foreach (Model m in mmddat.models)
 				{
+					// TODO: culling, etc.
 					if (mmddat.useOwnSections)
 					{
 						Section msec = m.sections[secIndex];
@@ -2017,6 +2090,7 @@ namespace UN11
 						
 						foreach (Model m in mmddat.models)
 						{
+							// TODO: culling, etc.
 							if (mmddat.useOwnSections)
 							{
 								Section msec = m.sections[secIndex];
@@ -2776,6 +2850,11 @@ namespace UN11
 				setLiteralValues(ttiOffset, transArr.getTransposedArr());
 			}
 			
+			public unsafe void setValues(int ttiOffset, TransArr transArr, int matCount)
+			{
+				setLiteralValues(ttiOffset, transArr.getTransposedArr(), matCount);
+			}
+			
 			/// <summary>
 			/// Does not perform transpose
 			/// </summary>
@@ -2795,12 +2874,20 @@ namespace UN11
 			/// </summary>
 			public unsafe void setLiteralValues(int ttiOffet, Matrix[] mats)
 			{
-				if (ttiOffet < 0 || ttiOffet + mats.Length > TransCData.maxTransMats)
+				setLiteralValues(ttiOffet, mats, mats.Length);
+			}
+			
+			/// <summary>
+			/// Does not perform transpose
+			/// </summary>
+			public unsafe void setLiteralValues(int ttiOffet, Matrix[] mats, int matCount)
+			{
+				if (ttiOffet < 0 || ttiOffet + matCount > TransCData.maxTransMats)
 					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
 				
 				fixed (Matrix* matPtr = &transBuffer.data.mat0)
 				{
-					for (int i = 0; i < mats.Length; i++)
+					for (int i = 0; i < matCount; i++)
 					{
 						matPtr[ttiOffet + i] = mats[i];
 					}
@@ -2811,18 +2898,74 @@ namespace UN11
 		// TODO: implement (and section.drawBatched)
 		public class CompoundTransArrBuffer : TransArrBuffer
 		{
+			public int maxCount {get; private set;} // TODO: remove this (transArrs are always the right size)
+			public int matCount {get; private set;}
 			private int curOffset;
 			public int count {get; private set;}
 			
-			public CompoundTransArrBuffer(Device device) : base(device)
+			public delegate void DrawDel(DeviceContext context, int count);
+			
+			public CompoundTransArrBuffer(Device device, int maxCountN, int matCountN) : base(device)
 			{
+				maxCount = maxCountN;
+				matCount = matCountN;
 				curOffset = 0;
 				count = 0;
 			}
 			
+			public void appendNuts(TransArr transArr, DeviceContext context, DrawDel drawCall)
+			{
+				append(transArr);
+				
+				if (full)
+				{
+					zeroNuts(context, drawCall);
+				}
+			}
+			
+			public void zeroNuts(DeviceContext context, DrawDel drawCall)
+			{
+				if (!empty)
+				{
+					update(context);
+					apply(context);
+					
+					drawCall(context, count);
+					
+					zero();
+				}
+			}
+			
 			public void append(TransArr transArr)
 			{
+				if (full)
+					throw new BloominEckException("This CompoundTransArrBuffer is full, laddy!");
 				
+				setValues(curOffset, transArr, matCount);
+				count++;
+				curOffset += matCount;
+			}
+			
+			public void zero()
+			{
+				count = 0;
+				curOffset = 0;
+			}
+			
+			public bool full
+			{
+				get
+				{
+					return count == maxCount;
+				}
+			}
+			
+			public bool empty
+			{
+				get
+				{
+					return count == 0;
+				}
 			}
 		}
 		
@@ -3623,7 +3766,8 @@ namespace UN11
 			public int numIndices;
 			
 			public TransArr transArr;
-			public TransArrBuffer transArrBuffer;
+			public TransArrBuffer transArrBuffer; // these are NOT shared
+			public CompoundTransArrBuffer compoundTransArrBuffer; // these are shared
 			
 			public List<Segment> segments;
 			public List<Segment> allSegs;
@@ -3686,6 +3830,7 @@ namespace UN11
 				
 				transArr = new TransArr();
 				transArrBuffer = new TransArrBuffer(device);
+				compoundTransArrBuffer = gin.compoundTransArrBuffer;
 				transArr.create(highTti + 1);
 				createSegmentBoxes();
 			}
@@ -3841,6 +3986,37 @@ namespace UN11
 				}
 			}
 			
+			public void drawBatched(DeviceContext context, ManyModelDrawData mmddat, DrawData ddat)
+			{
+				bool cullall = true;
+				
+				foreach (Model m in mmddat.models)
+				{
+					bool cullm = true; // true means it will be culled
+					
+					if (noCull || m.modelBox.dothSurviveClipTransformed(ref ddat.viewProjVP))
+					{
+						cullm = false;
+						cullall = false;
+					}
+					
+					foreach (Section sec in m.sections)
+						sec.curDrawCull = cullm; // TODO: move this into model?
+				}
+				
+				if (cullall)
+					return;
+				
+				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
+				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
+				
+				// set transArr in Section.drawMany
+				for (int i = 0; i < sections.Count; i++)
+				{
+					sections[i].drawBatched(context, ddat, mmddat, i);
+				}
+			}
+			
 			public void drawMany(DeviceContext context, ManyModelDrawData mmddat, DrawData ddat)
 			{
 				bool cullall = true;
@@ -3933,7 +4109,7 @@ namespace UN11
 				{
 					byte* verticesPtr = (byte*)vertexPtrVPCT;
 					
-					if (true || batchCopies == 1)
+					if (batchCopies == 1)
 					{
 						Utils.copy(verticesPtr, buffPtr, numVertices * stride);
 					}
@@ -3945,7 +4121,7 @@ namespace UN11
 						for (int i = 0; i < batchCopies; i++)
 						{
 							byte* copyPtr = (byte*)buffPtr + i * numVertices * stride;
-							Utils.copy(copyPtr, buffPtr, numVertices * stride);
+							Utils.copy(verticesPtr, copyPtr, numVertices * stride);
 							
 							// sort out ttiOffset for batch copies
 							if (i > 0)
@@ -3996,8 +4172,6 @@ namespace UN11
 			
 			public unsafe void fillIBuff(DeviceContext context)
 			{
-				
-				
 				DataStream dstream;
 				context.MapSubresource(ibuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
 				
@@ -4022,8 +4196,7 @@ namespace UN11
 							for (int i = 0; i < batchCopies; i++)
 							{
 								byte* copyPtr = secPtr + i * sec.triCount * 3 * sizeof (short);
-								Utils.copy(indicesPtr + sec.indexOffset, copyPtr, sec.triCount * 3 * sizeof (short));
-								//Utils.copy(copyPtr, indicesPtr + sec.indexOffset, sec.triCount * 3 * sizeof (short)); // is this the wrong way round??
+								Utils.copy(indicesPtr + sec.indexOffset * sizeof (short), copyPtr, sec.triCount * 3 * sizeof (short));
 								
 								if (i > 0)
 								{
@@ -4302,6 +4475,7 @@ namespace UN11
 			public Model mdl;
 			public ModelList models = new ModelList();
 			public bool useOwnSections = true; // if you set this to false, you probably want to be batching
+			public bool batched = false;
 			
 			public ManyModelDrawData(Model mdlN)
 			{
@@ -4310,7 +4484,10 @@ namespace UN11
 			
 			public override void drawGeometry(DeviceContext context, UN11.DrawData ddat)
 			{
-				mdl.drawMany(context, this, ddat);
+				if (batched)
+					mdl.drawBatched(context, this, ddat);
+				else
+					mdl.drawMany(context, this, ddat);
 			}
 		}
 		
@@ -6441,6 +6618,7 @@ namespace UN11
 								// finish up
 								curModel.transArr = new TransArr();
 								curModel.transArrBuffer = new TransArrBuffer(device);
+								curModel.compoundTransArrBuffer = new CompoundTransArrBuffer(device, curModel.batchCopies, curModel.highTti + 1);
 								curModel.transArr.create(curModel.highTti + 1);
 								curModel.createSegmentBoxes();
 								models.Add(curModel);
@@ -7028,6 +7206,7 @@ namespace UN11
 			int n = 100;
 			UN11.ManyModelDrawData mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
+			mmddat.batched = true;
 			for (int i = 0; i < n * n * n / 1000; i++)
 			{
 				tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, false), "tent" + i);
@@ -7070,6 +7249,8 @@ namespace UN11
 					swapChain.SetFullscreenState(false, null);
 				else if (args.KeyCode == Keys.Escape)
 					form.Close();
+				else if (args.KeyCode == Keys.B)
+					mmddat.batched = !mmddat.batched;
 			};
 			
 			perform();
