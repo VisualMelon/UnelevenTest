@@ -2007,8 +2007,7 @@ namespace UN11
 						
 						foreach (Model m in mmddat.models)
 						{
-							// TODO: per-light culling
-							if (m.curDrawCull)
+							if (m.curDrawCull || l.canSkip(m.modelBox))
 								continue;
 							
 							compoundTransArrBuffer.appendNuts(m.transArr, context, drawPrims);
@@ -2093,8 +2092,7 @@ namespace UN11
 						
 						foreach (Model m in mmddat.models)
 						{
-							// TODO: per-light culling
-							if (m.curDrawCull)
+							if (m.curDrawCull || l.canSkip(m.modelBox))
 								continue;
 					
 							if (mmddat.useOwnSections)
@@ -2113,7 +2111,7 @@ namespace UN11
 				}
 			}
 			
-			public void draw(DeviceContext context, DrawData ddat)
+			public void draw(DeviceContext context, DrawData ddat, Model mdl)
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
 				
@@ -2125,12 +2123,12 @@ namespace UN11
 					ddat.targetRenderViewPair.apply(context, false, false);
 					ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 					ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
-					drawDraw(context, ddat);
+					drawDraw(context, ddat, mdl);
 				}
 				else
 				{
 					// work out rasterizer states for fillmode etc.
-					drawToSide(context, ddat);
+					drawToSide(context, ddat, mdl);
 					drawSideOver(context, ddat);
 				}
 			}
@@ -2154,7 +2152,7 @@ namespace UN11
 				}
 			}
 			
-			public void drawToSide(DeviceContext context, DrawData ddat)
+			public void drawToSide(DeviceContext context, DrawData ddat, Model mdl)
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
 				
@@ -2163,10 +2161,10 @@ namespace UN11
 				ddat.targetTex.applyShaderResource(context, (int)TextureSlot.targetTex);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				
-				drawDraw(context, ddat);
+				drawDraw(context, ddat, mdl);
 			}
 			
-			public void drawDraw(DeviceContext context, DrawData ddat)
+			public void drawDraw(DeviceContext context, DrawData ddat, Model mdl)
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
 				
@@ -2195,7 +2193,7 @@ namespace UN11
 					
 					foreach (Light l in ddat.lights)
 					{
-						if (!l.lightEnabled)
+						if (!l.lightEnabled || l.canSkip(mdl.modelBox))
 							continue;
 						
 						l.lightBuffer.update(context);
@@ -2456,7 +2454,7 @@ namespace UN11
 				empty = true;
 			}
 			
-			BBox(Vector3 center, float xd, float yd, float zd)
+			public BBox(Vector3 center, float xd, float yd, float zd)
 			{
 				minX = center.X - xd;
 				minY = center.Y - yd;
@@ -3989,7 +3987,7 @@ namespace UN11
 				
 				foreach (Section sec in sections)
 				{
-					sec.draw(context, ddat);
+					sec.draw(context, ddat, this);
 				}
 			}
 			
@@ -5828,6 +5826,9 @@ namespace UN11
 			public bool useLightMap;
 			public bool useLightPattern;
 			
+			public bool allowSkip;
+			public BBox lightBox;
+			
 			public Light(Device device, string name, MatrixCollection matrices) : base(name)
 			{
 				// loads of defaults
@@ -5848,6 +5849,8 @@ namespace UN11
 				
 				eyeBuffer = new ConstBuffer<EyeCData>(device, EyeCData.defaultSlot);
 				lightMapBuffer = new ConstBuffer<LightMapCData>(device, LightMapCData.defaultSlot);
+				
+				allowSkip = false;
 			}
 			
 			public void drawLight(DeviceContext context, LightDrawData lddat, PreDrawData pddat)
@@ -5977,10 +5980,25 @@ namespace UN11
 				texAlignViewProj(ref viewProjTex.mat);
 			}
 			
+
+			private void updateBox()
+			{
+				// TODO: work these out for ortho and persp (can probably use same as point for the time being)
+				if (lightType == LightType.Point)
+				{
+					lightBox = new BBox(lightPos, lightDepth, lightDepth, lightDepth);
+				}
+				else
+				{
+					lightBox = new BBox(); // empty
+				}
+			}
+			
 			public void update()
 			{
 				updateMats();
 				updateLightCData();
+				updateBox();
 				
 				if (useLightMap)
 				{
@@ -6019,6 +6037,17 @@ namespace UN11
 			public void dirNormalAt(Vector3 camTarg)
 			{
 				lightDir = Vector3.Normalize(Vector3.Subtract(camTarg, lightPos));
+			}
+			
+			public bool canSkip(BBox bbox)
+			{
+				if (!allowSkip)
+					return false;
+				
+				if (lightBox.empty == false && !lightBox.overlap(bbox))
+					return true;
+				
+				return false;
 			}
 		}
 		
@@ -7208,7 +7237,7 @@ namespace UN11
 			
 			// lots of trees?!
 			Random rnd = new Random();
-			int n = 200;
+			int n = 100;
 			UN11.ManyModelDrawData mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
@@ -7366,14 +7395,13 @@ namespace UN11
 				sun.dimY = 50;
 				sun.lightDepth = 50;
 				sun.lightAmbient = new Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-				//sun.lightColMod = new Vector4(1, 1, 1, 1);
-				sun.lightColMod = new Vector4(0, 0, 0, 0);
+				sun.lightColMod = new Vector4(1, 1, 1, 1);
 				sun.lightPos = new Vector3(0, 10, 5);
 				sun.lightEnabled = true;
 				
 				// set up torch
 				torch.setDimension(view.texWidth, view.texHeight);
-				torch.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 50f);
+				torch.setProj(UN11.ViewMode.Persp, (float)Math.PI / 8.0f, 1.0f, 0.1f, 50f);
 				torch.lightType = UN11.LightType.Persp;
 				torch.useLightMap = true;
 				torch.lightDepth = 50;
@@ -7385,7 +7413,8 @@ namespace UN11
 				torch.lightEnabled = true;
 				torch.patternTex = uneleven.createTexture("white.png");
 				torch.useLightPattern = true; // don't really have any other choice
-				torch.targetRenderViewPair.clearColour = Color.Black;
+				torch.targetRenderViewPair.clearColour = Color.Red;
+				torch.allowSkip = true;
 				torch.dirNormalAt(new Vector3(10, 0, 10));
 				
 				// set up face
