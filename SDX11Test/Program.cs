@@ -1556,7 +1556,7 @@ namespace UN11
 				buffer = new Buffer(device, desc);
 			}
 			
-			/// <summary>/
+			/// <summary>
 			/// Create a const buffer with explicit buffer description
 			/// </summary>
 			/// <param name="device"></param>
@@ -1891,8 +1891,6 @@ namespace UN11
 			
 			public bool sectionEnabled; // whether it should draw or not
 			
-			public bool curDrawCull;
-			
 			public Section(Device device, string nameN) : base()
 			{
 				name = nameN;
@@ -1982,7 +1980,9 @@ namespace UN11
 				
 				foreach (Model m in mmddat.models)
 				{
-					// TODO: culling, etc.
+					if (m.curDrawCull)
+						continue;
+					
 					// I worry that the CompoundTransArrBuffer might have too much power...
 					compoundTransArrBuffer.appendNuts(m.transArr, context, drawPrims);
 				}
@@ -2007,7 +2007,10 @@ namespace UN11
 						
 						foreach (Model m in mmddat.models)
 						{
-							// TODO: culling, etc.
+							// TODO: per-light culling
+							if (m.curDrawCull)
+								continue;
+							
 							compoundTransArrBuffer.appendNuts(m.transArr, context, drawPrims);
 						}
 						compoundTransArrBuffer.zeroNuts(context, drawPrims);
@@ -2055,12 +2058,12 @@ namespace UN11
 				
 				foreach (Model m in mmddat.models)
 				{
-					// TODO: culling, etc.
+					if (m.curDrawCull)
+						continue;
+						
 					if (mmddat.useOwnSections)
 					{
 						Section msec = m.sections[secIndex];
-						if (msec.curDrawCull)
-							continue;
 						
 						msec.prettynessess[(int)ddat.sceneType].apply(context);
 					}
@@ -2090,12 +2093,13 @@ namespace UN11
 						
 						foreach (Model m in mmddat.models)
 						{
-							// TODO: culling, etc.
+							// TODO: per-light culling
+							if (m.curDrawCull)
+								continue;
+					
 							if (mmddat.useOwnSections)
 							{
 								Section msec = m.sections[secIndex];
-								if (msec.curDrawCull)
-									continue;
 								
 								msec.prettynessess[(int)ddat.sceneType].apply(context);
 							}
@@ -2397,7 +2401,7 @@ namespace UN11
 				{
 					if (model.verticesPC[i].tti == transIndex)
 					{
-						segBox.include(model.verticesPC[i].col3);
+						segBox.include(model.verticesPC[i].pos3);
 					}
 				}
 				
@@ -2412,7 +2416,7 @@ namespace UN11
 				{
 					if (model.verticesPCT[i].tti == transIndex)
 					{
-						segBox.include(model.verticesPCT[i].col3);
+						segBox.include(model.verticesPCT[i].pos3);
 					}
 				}
 				
@@ -3785,6 +3789,9 @@ namespace UN11
 			public bool noCull;
 			public ModelAnim anim;
 			
+			// fbf
+			public bool curDrawCull;
+			
 			public Model(string name) : base(name)
 			{
 				segments = new List<Segment>();
@@ -4000,8 +4007,7 @@ namespace UN11
 						cullall = false;
 					}
 					
-					foreach (Section sec in m.sections)
-						sec.curDrawCull = cullm; // TODO: move this into model?
+					m.curDrawCull = cullm;
 				}
 				
 				if (cullall)
@@ -4031,8 +4037,7 @@ namespace UN11
 						cullall = false;
 					}
 					
-					foreach (Section sec in m.sections)
-						sec.curDrawCull = cullm; // TODO: move this into model?
+					m.curDrawCull = cullm;
 				}
 				
 				if (cullall)
@@ -7203,7 +7208,7 @@ namespace UN11
 			
 			// lots of trees?!
 			Random rnd = new Random();
-			int n = 100;
+			int n = 200;
 			UN11.ManyModelDrawData mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
@@ -7222,10 +7227,10 @@ namespace UN11
 			uneleven.slides.Add(view);
 			uneleven.slides.Add(over);
 			
+			fddat.slideDrawDatas.Add(tddat); // lights first
 			fddat.slideDrawDatas.Add(vddat);
 			fddat.slideDrawDatas.Add(oddat);
 			fddat.slideDrawDatas.Add(cddat);
-			fddat.slideDrawDatas.Add(tddat);
 
 			// Use clock
 			clock = new Stopwatch();
