@@ -6078,28 +6078,49 @@ namespace UN11
 			public SlideDrawDataList slideDrawDatas = new UN11.SlideDrawDataList();
 		}
 		
+		/// <summary>
+		/// Represents a Dependancy Tree of things, and provides methods to flatten them to a list
+		/// Does not check if your tree is malformed (contains cycles, etc.)
+		/// </summary>
 		public class DependancyTree<T>
 		{
+			/// <summary>Whether this is a real dependancy</summary>
 			public bool real {get; private set;}
+			/// <summary>The root dependancy</summary>
 			public T val {get; private set;}
+			
 			private List<DependancyTree<T>> dependancies = new List<DependancyTree<T>>();
 			
+			/// <summary>
+			/// Creates an unreal DependancyTree
+			/// </summary>
 			public DependancyTree()
 			{
 				real = false;
 			}
 			
+			/// <summary>
+			/// Creates a real DependancyTree of given root dependancy (val)
+			/// </summary>
 			public DependancyTree(T valN)
 			{
 				real = true;
 				val = valN;
 			}
 			
+			/// <summary>
+			/// Checks whether the given thing is the real root dependnacy (val) of this DependancyTree
+			/// </summary>
+			/// <param name="thing">The thing to compare to</param>
 			public bool isReal(T thing)
 			{
 				return (real && val.Equals(thing));
 			}
 			
+			/// <summary>
+			/// Flatten the DependacyTree onto the end of a list
+			/// </summary>
+			/// <param name="res">The list to add to</param>
 			public void flattenOnto(IList<T> res)
 			{
 				foreach (DependancyTree<T> dt in dependancies)
@@ -6109,6 +6130,9 @@ namespace UN11
 					res.Add(val);
 			}
 			
+			/// <summary>
+			/// Flatten the DependacyTree into a new list
+			/// </summary>
 			public LT flatten<LT>() where LT : IList<T>, new()
 			{
 				LT res = new LT();
@@ -6116,6 +6140,10 @@ namespace UN11
 				return res;
 			}
 			
+			/// <summary>
+			/// Adds a dependancy (does not check for duplicates)
+			/// </summary>
+			/// <returns>The newly created subordinate DependancyTree</returns>
 			public DependancyTree<T> addDependancy(T dependancy)
 			{
 				DependancyTree<T> temp = new DependancyTree<T>(dependancy);
@@ -6137,6 +6165,9 @@ namespace UN11
 				return false;
 			}
 			
+			/// <summary>
+			/// Checks whether the given thing is a dependancy of this DependancyTree
+			/// </summary>
 			public bool dependsOn(T thing)
 			{
 				if (isReal(thing))
@@ -6148,6 +6179,9 @@ namespace UN11
 				return false;
 			}
 			
+			/// <summary>
+			/// Checks whether the given thing is a direct dependancy of this DependancyTree (you probably don't want to use this)
+			/// </summary>
 			public bool dependsOnDirect(T thing)
 			{
 				if (isReal(thing))
@@ -6288,6 +6322,9 @@ namespace UN11
 			return createTechnique(name, vertexTypeN, new ShaderBytecodeDesc[] { vshadeDescN }, new ShaderBytecodeDesc[] { pshadeDescN });
 		}
 		
+		/// <summary>
+		/// Indicates that a mal-formed sequence was detected in a file
+		/// </summary>
 		public class FileParsingException : Exception
 		{
 			public string src {get; private set;}
@@ -6313,6 +6350,9 @@ namespace UN11
 		
 		public delegate void FileParsingExceptionThrower(string msg);
 		
+		/// <summary>
+		/// Loads all the techniques from a given file into the given context
+		/// </summary>
 		public void loadTechniquesFromFile(string fileName)
 		{
 			VertexType vertexType = VertexType.VertexPC;
@@ -6482,6 +6522,10 @@ namespace UN11
 			return null;
 		}
 		
+		/// <summary>
+		/// Loads all the anims from a given file into the given context
+		/// </summary>
+		/// <returns>The number of anims loaded</returns>
 		public int loadAnimsFromFile(String fileName, DeviceContext context)
 		{
 			int count = 0;
@@ -6585,6 +6629,10 @@ namespace UN11
 			return count;
 		}
 		
+		/// <summary>
+		/// Loads all the models from a given file into the given context
+		/// </summary>
+		/// <returns>The number of models loaded</returns>
 		public int loadModelsFromFile(String fileName, DeviceContext context)
 		{
 			int count = 0;
