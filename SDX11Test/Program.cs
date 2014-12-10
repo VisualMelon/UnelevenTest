@@ -6178,9 +6178,6 @@ namespace UN11
 		public RasterizerStates rasterizerStates;
 		public SamplerStates samplerStates;
 		
-		// not sure
-		public SlideList slides = new SlideList(); // TODO: do we need this?
-		
 		public MatrixCollection matrices = new MatrixCollection();
 		
 		public EventManager eventManager = new UN11.EventManager();
@@ -7336,11 +7333,6 @@ namespace UN11
 			}
 			vddat.geometryDrawDatas.Add(mmddat);
 			//
-			
-			// TODO: do we need this
-			uneleven.slides.Add(view);
-			uneleven.slides.Add(over);
-			uneleven.slides.Add(torch);
 			
 			// build slide dependancy tree and feed it to fddat
 			slideTree.addDependancy(cddat).addDependancy(oddat).addDependancy(vddat).addDependancy(tddat);
