@@ -2897,7 +2897,6 @@ namespace UN11
 			}
 		}
 		
-		// TODO: implement (and section.drawBatched)
 		public class CompoundTransArrBuffer : TransArrBuffer
 		{
 			public int maxCount {get; private set;} // TODO: remove this (transArrs are always the right size)
@@ -3094,6 +3093,7 @@ namespace UN11
 			}
 		}
 		
+		// TODO: implement from CompoundTransArrBuffer
 		public class CompoundSpriteArrBuffer : SpriteArrBuffer
 		{
 			private int curOffset;
@@ -3941,6 +3941,7 @@ namespace UN11
 			
 			public void update(ref Matrix trans, bool forceUpdate = false)
 			{
+				// TODO: sections handle mats and such - this is NOT something that the model is capable of deciding about
 				// update sections
 				foreach (Section sec in sections)
 				{
@@ -6657,12 +6658,6 @@ namespace UN11
 								curModel.createSegmentBoxes();
 								models.Add(curModel);
 								
-								// TODO: remove this is nothing has broken
-//								foreach (Section ss in curModel.sections)
-//								{
-//									ss.indexCount = curModel.numVertices;
-//								}
-								
 								iOffs.Clear();
 								lastSegment = null;
 								curSegment = null;
@@ -7237,7 +7232,7 @@ namespace UN11
 			
 			// lots of trees?!
 			Random rnd = new Random();
-			int n = 100;
+			int n = 200;
 			UN11.ManyModelDrawData mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
@@ -7247,14 +7242,17 @@ namespace UN11
 				tent.or.offset = new Vector3(rnd.NextFloat(-n, n), -20, rnd.NextFloat(-n, n));
 				tent.update(true);
 				mmddat.models.Add(tent.mdl);
-				ftdat.updateable.Add(tent);
-				ftdat.animable.Add(tent.mdl);
+				// silky smooth if we don't do any of this madness
+				//ftdat.updateable.Add(tent);
+				//ftdat.animable.Add(tent.mdl);
 			}
 			vddat.geometryDrawDatas.Add(mmddat);
 			//
 			
+			// TODO: do we need this
 			uneleven.slides.Add(view);
 			uneleven.slides.Add(over);
+			uneleven.slides.Add(torch);
 			
 			fddat.slideDrawDatas.Add(tddat); // lights first
 			fddat.slideDrawDatas.Add(vddat);
