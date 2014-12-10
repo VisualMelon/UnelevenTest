@@ -6073,10 +6073,94 @@ namespace UN11
 			public List<IFrameUpdateable> updateable = new List<UN11.IFrameUpdateable>();
 		}
 		
-		// stuff for external stuff to throw at internal stuff
 		public class FrameDrawData
 		{
 			public SlideDrawDataList slideDrawDatas = new UN11.SlideDrawDataList();
+		}
+		
+		public class DependancyTree<T>
+		{
+			public bool real {get; private set;}
+			public T val {get; private set;}
+			private List<DependancyTree<T>> dependancies = new List<DependancyTree<T>>();
+			
+			public DependancyTree()
+			{
+				real = false;
+			}
+			
+			public DependancyTree(T valN)
+			{
+				real = true;
+				val = valN;
+			}
+			
+			public bool isReal(T thing)
+			{
+				return (real && val.Equals(thing));
+			}
+			
+			public void flattenOnto(IList<T> res)
+			{
+				foreach (DependancyTree<T> dt in dependancies)
+					dt.flattenOnto(res);
+				
+				if (real && !res.Contains(val))
+					res.Add(val);
+			}
+			
+			public LT flatten<LT>() where LT : IList<T>, new()
+			{
+				LT res = new LT();
+				flattenOnto(res);
+				return res;
+			}
+			
+			public DependancyTree<T> addDependancy(T dependancy)
+			{
+				DependancyTree<T> temp = new DependancyTree<T>(dependancy);
+				dependancies.Add(temp);
+				return temp;
+			}
+			
+			private bool dependsOnOrIs(T thing)
+			{
+				if (isReal(thing))
+					return true;
+				
+				foreach (DependancyTree<T> dt in dependancies)
+				{
+					if (dt.dependsOnOrIs(thing))
+						return true;
+				}
+				
+				return false;
+			}
+			
+			public bool dependsOn(T thing)
+			{
+				if (isReal(thing))
+					return false;
+				
+				if (dependsOnOrIs(thing))
+					return true;
+				
+				return false;
+			}
+			
+			public bool dependsOnDirect(T thing)
+			{
+				if (isReal(thing))
+					return false;
+				
+				foreach (DependancyTree<T> dt in dependancies)
+				{
+					if (dt.isReal(thing))
+						return true;
+				}
+				
+				return false;
+			}
 		}
 		
 		// UN11ness
@@ -7147,6 +7231,8 @@ namespace UN11
 		UN11.FrameDrawData fddat;
 		UN11.FrameTickData ftdat;
 		
+		UN11.DependancyTree<UN11.SlideDrawData> slideTree;
+		
 		Stopwatch clock;
 		
 		Texture2D backBuffer = null;
@@ -7211,6 +7297,8 @@ namespace UN11
 			tddat = new UN11.LightDrawData(torch);
 			tddat.geometryDrawDatas = vddat.geometryDrawDatas;
 			
+			slideTree = new UN11.DependancyTree<UN11.SlideDrawData>();
+			
 			cddat.elems.Add(telem);
 			
 			ftdat.updateable.Add(view);
@@ -7254,10 +7342,9 @@ namespace UN11
 			uneleven.slides.Add(over);
 			uneleven.slides.Add(torch);
 			
-			fddat.slideDrawDatas.Add(tddat); // lights first
-			fddat.slideDrawDatas.Add(vddat);
-			fddat.slideDrawDatas.Add(oddat);
-			fddat.slideDrawDatas.Add(cddat);
+			// build slide dependancy tree and feed it to fddat
+			slideTree.addDependancy(cddat).addDependancy(oddat).addDependancy(vddat).addDependancy(tddat);
+			slideTree.flattenOnto(fddat.slideDrawDatas);
 
 			// Use clock
 			clock = new Stopwatch();
