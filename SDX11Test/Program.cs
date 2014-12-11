@@ -2635,8 +2635,6 @@ namespace UN11
 
 			public bool collides(Ray ray)
 			{
-				float uRes, vRes, distRes; // not returned
-
 				for (int i = 0; i < 36; i += 3)
 				{
 					if (ray.Intersects(ref vecArr[bboxIndices[i]], ref vecArr[bboxIndices[i + 1]], ref vecArr[bboxIndices[i + 2]]))
@@ -3030,6 +3028,26 @@ namespace UN11
 			public Matrix getTranposedValue(int tti)
 			{
 				return transposedMats[tti];
+			}
+			
+			public void transform(ref Vector3 v, int tti, out Vector3 outv)
+			{
+				Vector3.TransformCoordinate(ref v, ref mats[tti], out outv);
+			}
+			
+			public void transform(ref Vector4 v, int tti, out Vector4 outv)
+			{
+				Vector4.Transform(ref v, ref mats[tti], out outv);
+			}
+			
+			public void transform(ref VertexPC v, out Vector3 outv)
+			{
+				Vector3.TransformCoordinate(ref v.pos3, ref mats[(int)v.tti], out outv);
+			}
+			
+			public void transform(ref VertexPCT v, out Vector3 outv)
+			{
+				Vector3.TransformCoordinate(ref v.pos3, ref mats[(int)v.tti], out outv);
 			}
 			
 			public int getLen()
@@ -4233,178 +4251,115 @@ namespace UN11
 				fillIBuff(context);
 			}
 			
-//			public unsafe void fillVBuff(DeviceContext context)
-//			{
-//				if (vertexType == VertexType.VertexPC)
-//					fillVBuffPC(context);
-//				if (vertexType == VertexType.VertexPCT)
-//					fillVBuffPCT(context);
-//			}
-//
-//			private unsafe void fillVBuffPC(DeviceContext context)
-//			{
-//				DataStream dstream;
-//				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
-//
-//				byte* buffPtr = (byte*)dstream.DataPointer;
-//				fixed (VertexPC* vertexPtrVPC = verticesPC)
-//				{
-//					byte* verticesPtr = (byte*)vertexPtrVPC;
-//
-//					if (batchCopies == 1)
-//					{
-//						Utils.copy(verticesPtr, buffPtr, numVertices * stride);
-//					}
-//					else
-//					{
-//						int ttiOffset = 0;
-//
-//						// madness ensues
-//						for (int i = 0; i < batchCopies; i++)
-//						{
-//							byte* copyPtr = (byte*)buffPtr + i * numVertices * stride;
-//							Utils.copy(copyPtr, buffPtr, numVertices * stride);
-//
-//							// sort out ttiOffset for batch copies
-//							if (i > 0)
-//							{
-//								ttiOffset += highTti + 1; // 1 makes it the count
-//
-//								VertexPC* vPCs = (VertexPC*)copyPtr;
-//								for (int j = 0; j < numVertices; j++)
-//								{
-//									vPCs[j].tti += ttiOffset;
-//								}
-//							}
-//						}
-//					}
-//				}
-//
-//				context.UnmapSubresource(vbuff, 0);
-//			}
-//
-//			private unsafe void fillVBuffPCT(DeviceContext context)
-//			{
-//				DataStream dstream;
-//				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
-//
-//				byte* buffPtr = (byte*)dstream.DataPointer;
-//				fixed (VertexPCT* vertexPtrVPCT = verticesPCT)
-//				{
-//					byte* verticesPtr = (byte*)vertexPtrVPCT;
-//
-//					if (true || batchCopies == 1)
-//					{
-//						Utils.copy(verticesPtr, buffPtr, numVertices * stride);
-//					}
-//					else
-//					{
-//						int ttiOffset = 0;
-//
-//						// madness ensues
-//						for (int i = 0; i < batchCopies; i++)
-//						{
-//							byte* copyPtr = (byte*)buffPtr + i * numVertices * stride;
-//							Utils.copy(copyPtr, buffPtr, numVertices * stride);
-//
-//							// sort out ttiOffset for batch copies
-//							if (i > 0)
-//							{
-//								ttiOffset += highTti + 1; // 1 makes it the count
-//
-//								VertexPCT* vPCTs = (VertexPCT*)copyPtr;
-//								for (int j = 0; j < numVertices; j++)
-//								{
-//									vPCTs[j].tti += ttiOffset;
-//								}
-//							}
-//						}
-//					}
-//				}
-//
-//				context.UnmapSubresource(vbuff, 0);
-//			}
-//
-//			public void createVBuff(Device device, DeviceContext context, VertexPC[] vPCs, VertexPCT[] vPCTs /*add formats here as appropriate, hope there arn't too many*/)
-//			{
-//				if (vertexType == VertexType.VertexPC)
-//				{
-//					vbuff = new Buffer(device, new BufferDescription(numVertices * VertexPC.size * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
-//
-//					vbuffBinding = new VertexBufferBinding(vbuff, UN11.VertexPC.size, 0);
-//
-//					verticesPC = new VertexPC[vPCs.Length];
-//					Utils.copy<VertexPC>(0, vPCs, 0, verticesPC, vPCs.Length);
-//				}
-//				else if (vertexType == VertexType.VertexPCT)
-//				{
-//					vbuff = new Buffer(device, new BufferDescription(numVertices * VertexPCT.size * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
-//
-//					vbuffBinding = new VertexBufferBinding(vbuff, UN11.VertexPCT.size, 0);
-//
-//					verticesPCT = new VertexPCT[vPCTs.Length];
-//					Utils.copy<VertexPCT>(0, vPCTs, 0, verticesPCT, vPCTs.Length);
-//				}
-//
-//				fillVBuff(context);
-//			}
-//
-//			public unsafe void fillIBuff(DeviceContext context)
-//			{
-//				DataStream dstream;
-//				context.MapSubresource(ibuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
-//
-//				byte* buffPtr = (byte*)dstream.DataPointer;
-//				fixed (short* indicesPtrShort = indices)
-//				{
-//					byte* indicesPtr = (byte*)indicesPtrShort;
-//
-//					if (true || batchCopies == 1)
-//					{
-//						Utils.copy(indicesPtr, buffPtr, numIndices * sizeof(short));
-//						//Utils.copy(buffPtr, indicesPtr, numIndices * sizeof(short)); // this is the wrong way round!
-//					}
-//					else
-//					{
-//						// madness ensues
-//						foreach (Section sec in sections)
-//						{
-//							byte* secPtr = (byte*)buffPtr + sec.indexOffset * sizeof (short) * batchCopies;
-//
-//							int idxOffset = 0;
-//							for (int i = 0; i < batchCopies; i++)
-//							{
-//								byte* copyPtr = secPtr + i * sec.triCount * 3 * sizeof (short);
-//								Utils.copy(indicesPtr + sec.indexOffset, copyPtr, sec.triCount * 3 * sizeof (short));
-//								//Utils.copy(copyPtr, indicesPtr + sec.indexOffset, sec.triCount * 3 * sizeof (short)); // is this the wrong way round??
-//
-//								if (i > 0)
-//								{
-//									idxOffset += numVertices;
-//
-//									short* idxs = (short*)copyPtr;
-//									for (int j = 0; j < sec.triCount * 3; j++)
-//									{
-//										idxs[j] += (short)idxOffset;
-//									}
-//								}
-//							}
-//						}
-//					}
-//				}
-//
-//				context.UnmapSubresource(ibuff, 0);
-//			}
-//
-//			public void createIBuff(Device device, DeviceContext context, short[] ids)
-//			{
-//				ibuff = new Buffer(device, new BufferDescription(numIndices * sizeof (short) * batchCopies, ResourceUsage.Dynamic, BindFlags.IndexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
-//
-//				indices = new short[ids.Length];
-//				Utils.copy<short>(0, ids, 0, indices, ids.Length);
-//
-//				fillIBuff(context);
-//			}
+			public bool collides(Ray ray, out float distRes)
+			{
+				if (!modelBox.collides(ray))
+					goto no;
+				
+				if (vertexType == VertexType.VertexPC)
+				{
+					return collidesPC(ray, out distRes);
+				}
+				else if (vertexType == VertexType.VertexPCT)
+				{
+					return collidesPCT(ray, out distRes);
+				}
+				
+				// err?
+			no:
+				distRes = -1;
+				return false;
+			}
+			
+			public bool collidesPC(Ray ray, out float distRes)
+			{
+				float uRes, vRes; // not returned
+
+				VertexPC a, b, c;
+				Vector3 va, vb, vc;
+				
+				bool victory = false;
+				float bestDist = -1;
+				float tempDist;
+				
+				for (int i = 0; i < numIndices; i += 3)
+				{
+					a = verticesPC[(int)indices[i]];
+					b = verticesPC[(int)indices[i + 1]];
+					c = verticesPC[(int)indices[i + 2]];
+					
+					transArr.transform(ref a, out va);
+					transArr.transform(ref b, out vb);
+					transArr.transform(ref c, out vc);
+					
+					if (ray.Intersects(ref va, ref vb, ref vc, out tempDist))
+					{
+						if (victory == false)
+						{
+							victory = true;
+							bestDist = tempDist;
+						}
+						else if (tempDist < bestDist)
+						{
+								bestDist = tempDist;
+						}
+					}
+				}
+				
+				if (victory)
+				{
+					distRes = bestDist;
+					return true;
+				}
+
+				distRes = -1;
+				return false;
+			}
+			
+			public bool collidesPCT(Ray ray, out float distRes)
+			{
+				float uRes, vRes; // not returned
+
+				VertexPCT a, b, c;
+				Vector3 va, vb, vc;
+				
+				bool victory = false;
+				float bestDist = -1;
+				float tempDist;
+				
+				for (int i = 0; i < numIndices; i += 3)
+				{
+					a = verticesPCT[(int)indices[i]];
+					b = verticesPCT[(int)indices[i + 1]];
+					c = verticesPCT[(int)indices[i + 2]];
+					
+					transArr.transform(ref a, out va);
+					transArr.transform(ref b, out vb);
+					transArr.transform(ref c, out vc);
+					
+					if (ray.Intersects(ref va, ref vb, ref vc, out tempDist))
+					{
+						if (victory == false)
+						{
+							victory = true;
+							bestDist = tempDist;
+						}
+						else if (tempDist < bestDist)
+						{
+								bestDist = tempDist;
+						}
+					}
+				}
+				
+				if (victory)
+				{
+					distRes = bestDist;
+					return true;
+				}
+
+				distRes = -1;
+				return false;
+			}
 		}
 		
 		public class ModelCollection : NamedCollection<Model>
