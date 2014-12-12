@@ -70,6 +70,14 @@ namespace UN11
 		
 		public class TextureCollection : NamedCollection<NamedTexture>
 		{
+			public void disposeAll()
+			{
+				foreach (NamedTexture nt in this)
+				{
+					nt.tex.Dispose();
+					nt.texShaderView.Dispose();
+				}
+			}
 		}
 		
 		public class TextureView
@@ -6157,7 +6165,7 @@ namespace UN11
 		// stuff what is loaded
 		public ShaderBytecodeCollection bytecodes = new ShaderBytecodeCollection();
 		public TechniqueCollection techniques = new TechniqueCollection();
-		public TextureCollection textures = new TextureCollection();
+		public TextureCollection textures = new TextureCollection(); // TODO: make sure all textures are in this for disposal (and look for other texture things, and stencil buffers, etc.)
 		public ModelCollection models = new ModelCollection();
 		public AnimCollection anims = new AnimCollection();
 		
@@ -6262,9 +6270,13 @@ namespace UN11
 			timing.start();
 		}
 		
+		/// <summary>
+		/// Does not dispose device
+		/// </summary>
 		public void disposeAll()
 		{
 			bytecodes.disposeAll();
+			textures.disposeAll();
 		}
 		
 		public ShaderBytecodeDesc loadShaderBytecode(string fileName, string shaderName, string shaderFlags)
