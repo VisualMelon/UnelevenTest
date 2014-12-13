@@ -2121,10 +2121,10 @@ namespace UN11
 			
 			public void draw(DeviceContext context, DrawData ddat, Model mdl)
 			{
-				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
-				
 				if (sectionEnabled == false)
 					return;
+				
+				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
 				
 				if (ddat.sceneType == SceneType.Light || prettyness.prettyness.alphaMode == AlphaMode.None)
 				{
@@ -7307,7 +7307,6 @@ namespace UN11
 			oddat = new UN11.OverDrawData(over);
 			cddat = new UN11.FaceDrawData(face, vt);
 			tddat = new UN11.LightDrawData(torch);
-			tddat.geometryDrawDatas = vddat.geometryDrawDatas;
 			
 			slideTree = new UN11.DependancyTree<UN11.SlideDrawData>();
 			
@@ -7323,23 +7322,40 @@ namespace UN11
 			ftdat.updateable.Add(sun);
 			ftdat.updateable.Add(torch);
 			
+			UN11.ModelEntity ment = new UN11.ModelEntity(new UN11.Model(uneleven.models["map"], device, context, true), "ment");
+			ment.or.offset.Y = -15;
+			ment.update(true);
+			ment.mdl.noCull = true;
+			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(ment));
+			
 			UN11.ModelEntity tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, true), "tent");
 			tent.update(true);
 			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
+			tddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
 			ftdat.updateable.Add(tent);
 			ftdat.animable.Add(tent.mdl);
 			tent.mdl.changeAnim(uneleven.anims["tree_spin"]);
 			
 			// lots of trees?!
 			Random rnd = new Random();
-			int n = 200;
+			int n = 100;
 			UN11.ManyModelDrawData mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
 			for (int i = 0; i < n * n * n / 1000; i++)
 			{
 				tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, false), "tent" + i);
-				tent.or.offset = new Vector3(rnd.NextFloat(-n, n), -20, rnd.NextFloat(-n, n));
+			again:
+				tent.or.offset = new Vector3(rnd.NextFloat(-n, n), 20, rnd.NextFloat(-n, n));
+				
+				// move to floor
+				float distRes;
+				if (!ment.mdl.collides(new Ray(tent.or.offset, -Vector3.UnitY), out distRes))
+					goto again;
+				tent.or.offset.Y -= distRes;
+				if (tent.or.offset.Y < ment.or.offset.Y + 0.01f)
+					goto again;
+				
 				tent.update(true);
 				mmddat.models.Add(tent.mdl);
 				// silky smooth if we don't do any of this madness
@@ -7347,6 +7363,7 @@ namespace UN11
 				//ftdat.animable.Add(tent.mdl);
 			}
 			vddat.geometryDrawDatas.Add(mmddat);
+			tddat.geometryDrawDatas.Add(mmddat);
 			//
 			
 			// build slide dependancy tree and feed it to fddat
