@@ -577,7 +577,7 @@ PS_Output PShade_Tex_Lit##lightName##(VS_Output_Tex inp) \
 	outp.col = outp.col * colMod; \
 	float alphaPreserve = outp.col.w; \
  \
-	outp.col = outp.col * (lightMod * inp.lit + lightAmbient) * lightCoof; \
+	outp.col = outp.col * (lightMod * clampPositive(inp.lit) + lightAmbient) * lightCoof; \
  \
 	outp.col *= alphaPreserve; \
 	outp.col.w = 0; \
@@ -620,7 +620,7 @@ PS_Output PShade_Tex_Alpha_Lit##lightName##(VS_Output_Tex inp) \
 	outp.col = outp.col * colMod; \
 	float alphaPreserve = outp.col.w; \
  \
-	outp.col = outp.col * (lightMod * inp.lit + lightAmbient) * lightCoof; \
+	outp.col = outp.col * (lightMod * clampPositive(inp.lit) + lightAmbient) * lightCoof; \
  \
 	outp.col *= alphaPreserve; \
 	outp.col.w = 0; \
