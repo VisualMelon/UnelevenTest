@@ -6117,15 +6117,72 @@ namespace UN11
 				return res;
 			}
 			
+			public delegate DependancyTree<T> DependancyTreeConstructor(T val, params DependancyTree<T>[] dependancies);
+			
 			/// <summary>
-			/// Adds a dependancy (does not check for duplicates)
+			/// Ugly thing so that other stuff doesn't have to be ugly
 			/// </summary>
-			/// <returns>The newly created subordinate DependancyTree</returns>
-			public DependancyTree<T> addDependancy(T dependancy)
+			/// <returns>The newly create DependancyTree</returns>
+			public static DependancyTree<T> construct(T val, params DependancyTree<T>[] dependancies)
+			{
+				return new DependancyTree<T>(val).addDependancies(dependancies);
+			}
+			
+			/// <summary>
+			/// Adds a dependancy (does not check for duplicates) and returns it
+			/// </summary>
+			/// <returns>The newly created DependancyTree</returns>
+			public DependancyTree<T> addSingleDependancy(T dependancy)
 			{
 				DependancyTree<T> temp = new DependancyTree<T>(dependancy);
 				dependancies.Add(temp);
 				return temp;
+			}
+			
+			/// <summary>
+			/// Adds a load of dependancies, then returns itself
+			/// </summary>
+			/// <returns>this DependancyTree</returns>
+			public DependancyTree<T> addDependancy(params T[] dependancies)
+			{
+				return addDependancies(dependancies);
+			}
+			
+			/// <summary>
+			/// Adds a load of dependancies, then returns itself
+			/// </summary>
+			/// <returns>this DependancyTree</returns>
+			public DependancyTree<T> addDependancies(IEnumerable<T> dependancies)
+			{
+				foreach (T d in dependancies)
+				{
+					addSingleDependancy(d);
+				}
+				
+				return this;
+			}
+			
+			/// <summary>
+			/// Adds a load of dependancies, then returns itself
+			/// </summary>
+			/// <returns>this DependancyTree</returns>
+			public DependancyTree<T> addDependancy(params DependancyTree<T>[] dependancies)
+			{
+				return addDependancies(dependancies);
+			}
+			
+			/// <summary>
+			/// Adds a load of dependancies, then returns itself
+			/// </summary>
+			/// <returns>this DependancyTree</returns>
+			public DependancyTree<T> addDependancies(IEnumerable<DependancyTree<T>> dependancies)
+			{
+				foreach (DependancyTree<T> d in dependancies)
+				{
+					this.dependancies.Add(d);
+				}
+				
+				return this;
 			}
 			
 			private bool dependsOnOrIs(T thing)
@@ -7383,8 +7440,20 @@ namespace UN11
 			tddat.geometryDrawDatas.Add(mmddat);
 			//
 			
+			UN11.DependancyTree<UN11.SlideDrawData>.DependancyTreeConstructor k = UN11.DependancyTree<UN11.SlideDrawData>.construct;
+			
 			// build slide dependancy tree and feed it to fddat
-			slideTree.addDependancy(cddat).addDependancy(oddat).addDependancy(vddat).addDependancy(tddat);
+			slideTree.addDependancy(
+				k(cddat, 
+					k(oddat, 
+						k(vddat, 
+				      		k(tddat
+							)
+						)
+					)
+				)
+			);
+			
 			slideTree.flattenOnto(fddat.slideDrawDatas);
 
 			// Use clock
