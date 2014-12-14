@@ -7301,20 +7301,23 @@ namespace UN11
 			// Ignore all windows events
 			factory = swapChain.GetParent<Factory>();
 			factory.MakeWindowAssociation(form.Handle, WindowAssociationFlags.IgnoreAll);
+			
+			// create slides (do this before loading stuff, otherwise they can't see the mats/textures)
+			view = new UN11.View(device, "main", uneleven.matrices, uneleven.textures);
+			over = new UN11.Over(device, "main", uneleven.textures);
+			face = new UN11.Face(device, "main");
+			sun = new UN11.Light(device, "sun", uneleven.matrices);
+			torch = new UN11.Light(device, "torch", uneleven.matrices, uneleven.textures);
 
 			// load some stuff from some files
 			uneleven.loadTechniquesFromFile("textT.uncrz");
 			uneleven.loadModelsFromFile("text.uncrz", context);
 			uneleven.loadAnimsFromFile("textA.uncrz", context);
 			
-			// describe frame
-			view = new UN11.View(device, "main", uneleven.matrices, uneleven.textures);
-			over = new UN11.Over(device, "main", uneleven.textures);
-			face = new UN11.Face(device, "main");
-			sun = new UN11.Light(device, "sun", uneleven.matrices);
-			torch = new UN11.Light(device, "torch", uneleven.matrices, uneleven.textures);
+			// face stuff
 			telem = new UN11.TexElem("disp", null, new Rectangle(0, 0, view.texHeight, view.texHeight));
 			
+			// describe frame
 			ftdat = new UN11.FrameTickData();
 			fddat = new UN11.FrameDrawData();
 			vddat = new UN11.ViewDrawData(view, UN11.SceneType.Colour);
