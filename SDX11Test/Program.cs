@@ -143,7 +143,7 @@ namespace UN11
 			
 			public new void setTex(Texture2D texN, ShaderResourceView texShaderViewN)
 			{
-				setTex(texN, texShaderViewN);
+				base.setTex(texN, texShaderViewN);
 			}
 		}
 		
@@ -194,19 +194,19 @@ namespace UN11
 			public int texWidth {get; private set;}
 			public int texHeight {get; private set;}
 			
-			private DubiousNamedTexture dubiousTargetTex;
+			private DubiousNamedTexture dubiousRenderTex;
 			private Texture2D dubiousTargetStencilTex;
-			public RenderViewPair targetRenderViewPair {get; private set;}
+			public RenderViewPair renderViewPair {get; private set;}
 			
-			public NamedTexture targetTex
+			public NamedTexture renderTex
 			{
 				get
 				{
-					return dubiousTargetTex;
+					return dubiousRenderTex;
 				}
 			}
 			
-			public Texture2D targetStencilTex
+			public Texture2D stencilTex
 			{
 				get
 				{
@@ -214,16 +214,18 @@ namespace UN11
 				}
 			}
 			
-			public RenderTextureSet(string targetTexName, TextureCollection textures)
+			public RenderTextureSet(string renderTexName, TextureCollection textures)
 			{
-				dubiousTargetTex = new DubiousNamedTexture(targetTexName);
-				textures.Add(targetTex);
+				dubiousRenderTex = new DubiousNamedTexture(renderTexName);
+				textures.Add(renderTex);
+				
+				renderViewPair = new UN11.RenderViewPair();
 			}
 			
 			protected void setRenderTex(Texture2D texN, ShaderResourceView texShaderViewN, RenderTargetView texRenderViewN)
 			{
-				targetRenderViewPair.renderView = texRenderViewN;
-				dubiousTargetTex.setTex(texN, texShaderViewN);
+				renderViewPair.renderView = texRenderViewN;
+				dubiousRenderTex.setTex(texN, texShaderViewN);
 			}
 			
 			// lovley exposed methods
@@ -233,24 +235,24 @@ namespace UN11
 				texHeight = texHeightN;
 			}
 			
-			public void initTarget(Device device, Format format)
+			public void initRender(Device device, Format format)
 			{
-				fillDubiousNamedRenderTexture(device, dubiousTargetTex, texWidth, texHeight, format, out targetRenderViewPair.renderView);
+				fillDubiousNamedRenderTexture(device, dubiousRenderTex, texWidth, texHeight, format, out renderViewPair.renderView);
 			}
 			
-			public void initTarget(RenderTargetView targetRenderViewN)
+			public void initRender(RenderTargetView targetRenderViewN)
 			{
-				targetRenderViewPair.renderView = targetRenderViewN;
+				renderViewPair.renderView = targetRenderViewN;
 			}
 			
-			public void initTargetStencil(Device device)
+			public void initStencil(Device device)
 			{
-				createStencilBuffer(device, texWidth, texHeight, out dubiousTargetStencilTex, out targetRenderViewPair.stencilView);
+				createStencilBuffer(device, texWidth, texHeight, out dubiousTargetStencilTex, out renderViewPair.stencilView);
 			}
 			
-			public void initTargetStencil(DepthStencilView targetStencilViewN)
+			public void initStencil(DepthStencilView targetStencilViewN)
 			{
-				targetRenderViewPair.stencilView = targetStencilViewN;
+				renderViewPair.stencilView = targetStencilViewN;
 			}
 		}
 		
@@ -5494,19 +5496,17 @@ namespace UN11
 			public int texWidth;
 			public int texHeight;
 			
-			public NamedTexture targetTex;
-			public Texture2D targetStencilTex;
-			public RenderViewPair targetRenderViewPair;
+			public RenderTextureSet targetTextureSet;
 			
 			public Color clearColour
 			{
 				get
 				{
-					return targetRenderViewPair.clearColour;
+					return targetTextureSet.renderViewPair.clearColour;
 				}
 				set
 				{
-					targetRenderViewPair.clearColour = value;
+					targetTextureSet.renderViewPair.clearColour = value;
 				}
 			}
 			
@@ -5514,16 +5514,16 @@ namespace UN11
 			
 			private Overness overness;
 			
-			public Over(Device device, string nameN)
+			public Over(Device device, string nameN, TextureCollection textures)
 			{
 				name = nameN;
-				targetRenderViewPair = new UN11.RenderViewPair();
+				targetTextureSet = new UN11.RenderTextureSet("over_" + name, textures);
 				texness = new Texness();
 			}
 			
 			public void drawOver(DeviceContext context, OverDrawData oddat, PreDrawData pddat)
 			{
-				targetRenderViewPair.apply(context, true, true);
+				targetTextureSet.renderViewPair.apply(context, true, true);
 				texness.applyTextures(context);
 				
 				// TODO: add alphaModes for overs
@@ -5552,27 +5552,10 @@ namespace UN11
 			{
 				texWidth = texWidthN;
 				texHeight = texHeightN;
-			}
-			
-			public void initTarget(Device device, Format format, TextureCollection textures)
-			{
-				targetTex = createRenderNamedTexture(device, "over_" + name, texWidth, texHeight, format, out targetRenderViewPair.renderView);
-				textures.Set(targetTex);
-			}
-			
-			public void initTarget(RenderTargetView targetRenderViewN)
-			{
-				targetRenderViewPair.renderView = targetRenderViewN;
-			}
-			
-			public void initTargetStencil(Device device)
-			{
-				createStencilBuffer(device, texWidth, texHeight, out targetStencilTex, out targetRenderViewPair.stencilView);
-			}
-			
-			public void initTargetStencil(DepthStencilView targetStencilViewN)
-			{
-				targetRenderViewPair.stencilView = targetStencilViewN;
+				
+				targetTextureSet.setDimension(texWidth, texHeight);
+				
+				// TODO: does this need a vp? (see setDimension for Light and View)
 			}
 		}
 		
@@ -5613,23 +5596,18 @@ namespace UN11
 			
 			public AppliableViewport vp;
 			
-			public NamedTexture targetTex;
-			public Texture2D targetStencilTex;
-			public RenderViewPair targetRenderViewPair;
-			
-			public NamedTexture sideTex;
-			public Texture2D sideStencilTex;
-			public RenderViewPair sideRenderViewPair;
+			public RenderTextureSet targetTextureSet {get; private set;}
+			public RenderTextureSet sideTextureSet {get; private set;}
 			
 			public Color clearColour
 			{
 				get
 				{
-					return targetRenderViewPair.clearColour;
+					return targetTextureSet.renderViewPair.clearColour;
 				}
 				set
 				{
-					targetRenderViewPair.clearColour = value;
+					targetTextureSet.renderViewPair.clearColour = value;
 				}
 			}
 			
@@ -5643,18 +5621,18 @@ namespace UN11
 			private ConstBuffer<EyeCData> eyeBuffer;
 			private Overness overness;
 			
-			public View(Device device, string name, MatrixCollection matrices) : base(name)
+			public View(Device device, string name, MatrixCollection matrices, TextureCollection textures) : base(name)
 			{
 				// loads of defaults
 				camPos = new Vector3(0f, 0f, 0f);
 				camDir = new Vector3(1f, 0f, 0f);
 				camUp = new Vector3(0f, 1f, 0f);
 
-				targetRenderViewPair = new UN11.RenderViewPair();
-				sideRenderViewPair = new UN11.RenderViewPair();
+				targetTextureSet = new UN11.RenderTextureSet("view_" + name, textures);
+				sideTextureSet = new UN11.RenderTextureSet("view_" + name + "_side", textures);
 				
 				clearColour = transBlack;
-				sideRenderViewPair.clearColour = transBlack;
+				sideTextureSet.renderViewPair.clearColour = transBlack;
 				
 				matrices.Set(viewProjVP = new NamedMatrix("view_" + name + "_viewproj"));
 				matrices.Set(viewProjTex = new NamedMatrix("view_" + name + "_viewprojtex"));
@@ -5670,16 +5648,16 @@ namespace UN11
 				DrawData ddat = new DrawData(pddat, vddat.sceneType);
 				ddat.eyeBuffer = eyeBuffer;
 				ddat.lightMapBuffer = null; // no light maps here
-				ddat.targetTex = targetTex;
-				ddat.targetRenderViewPair = targetRenderViewPair;
-				ddat.sideTex = sideTex;
-				ddat.sideRenderViewPair = sideRenderViewPair;
+				ddat.targetTex = targetTextureSet.renderTex;
+				ddat.targetRenderViewPair = targetTextureSet.renderViewPair;
+				ddat.sideTex = sideTextureSet.renderTex;
+				ddat.sideRenderViewPair = sideTextureSet.renderViewPair;
 				ddat.overness = overness;
 				ddat.vp = vp;
 				ddat.lights = vddat.lights;
 				ddat.viewProjVP = viewProjVP.mat;
 				
-				targetRenderViewPair.apply(context, true, true);
+				ddat.targetRenderViewPair.apply(context, true, true);
 				
 				foreach (GeometryDrawData gddat in vddat.geometryDrawDatas)
 				{
@@ -5710,49 +5688,10 @@ namespace UN11
 				texWidth = texWidthN;
 				texHeight = texHeightN;
 				
+				targetTextureSet.setDimension(texWidth, texHeight);
+				sideTextureSet.setDimension(texWidth, texHeight);
+				
 				vp = new AppliableViewport(0, 0, texWidth, texHeight, 0.0f, 1.0f);
-			}
-			
-			public void initTarget(Device device, Format format, TextureCollection textures)
-			{
-				targetTex = createRenderNamedTexture(device, "view_" + name, texWidth, texHeight, format, out targetRenderViewPair.renderView);
-				textures.Set(targetTex);
-			}
-			
-			public void initTarget(RenderTargetView targetRenderViewN)
-			{
-				targetRenderViewPair.renderView = targetRenderViewN;
-			}
-			
-			public void initSide(Device device, Format format, TextureCollection textures)
-			{
-				sideTex = createRenderNamedTexture(device, "view_" + name + "_side", texWidth, texHeight, format, out sideRenderViewPair.renderView);
-				textures.Set(sideTex);
-			}
-			
-			public void initSide(RenderTargetView sideRenderViewN)
-			{
-				sideRenderViewPair.renderView = sideRenderViewN;
-			}
-			
-			public void initTargetStencil(Device device)
-			{
-				createStencilBuffer(device, texWidth, texHeight, out targetStencilTex, out targetRenderViewPair.stencilView);
-			}
-			
-			public void initTargetStencil(DepthStencilView targetStencilViewN)
-			{
-				targetRenderViewPair.stencilView = targetStencilViewN;
-			}
-			
-			public void initSideStencil(Device device)
-			{
-				createStencilBuffer(device, texWidth, texHeight, out sideStencilTex, out sideRenderViewPair.stencilView);
-			}
-			
-			public void initSideStencil(DepthStencilView sideStencilViewN)
-			{
-				sideRenderViewPair.stencilView = sideStencilViewN;
 			}
 			
 			private void updateEyeCData()
@@ -5854,9 +5793,7 @@ namespace UN11
 			
 			public TextureView patternTex;
 			
-			public NamedTexture targetTex;
-			public Texture2D targetStencilTex;
-			public RenderViewPair targetRenderViewPair;
+			public RenderTextureSet targetTextureSet {get; private set;}
 			
 			// clipping
 			
@@ -5870,20 +5807,33 @@ namespace UN11
 			private ConstBuffer<EyeCData> eyeBuffer;
 			private ConstBuffer<LightMapCData> lightMapBuffer;
 			
-			public bool useLightMap;
+			public bool useLightMap {get; private set;}
 			public bool useLightPattern;
 			
 			public bool allowSkip;
 			public BBox lightBox;
 			
-			public Light(Device device, string name, MatrixCollection matrices) : base(name)
+			/// <summary>Init a light that does not use a lightMap</summary>
+			public Light(Device device, string name, MatrixCollection matrices) : this(device, name, matrices, false, null)
+			{
+			}
+			
+			/// <summary>Init a light that does use a lightMap</summary>
+			public Light(Device device, string name, MatrixCollection matrices, TextureCollection textures) : this(device, name, matrices, true, textures)
+			{
+			}
+			
+			private Light(Device device, string name, MatrixCollection matrices, bool useLightMapN, TextureCollection textures) : base(name)
 			{
 				// loads of defaults
 				lightPos = new Vector3(0f, 0f, 0f);
 				lightDir = new Vector3(1f, 0f, 0f);
 				lightUp = new Vector3(0f, 1f, 0f);
 				
-				targetRenderViewPair = new UN11.RenderViewPair();
+				useLightMap = useLightMapN;
+				
+				if (useLightMap)
+					targetTextureSet = new RenderTextureSet("light_" + name, textures);
 				
 				lightEnabled = true;
 				
@@ -5908,12 +5858,12 @@ namespace UN11
 				DrawData ddat = new DrawData(pddat, SceneType.Light);
 				ddat.eyeBuffer = eyeBuffer;
 				ddat.lightMapBuffer = lightMapBuffer;
-				ddat.targetTex = targetTex;
-				ddat.targetRenderViewPair = targetRenderViewPair;
+				ddat.targetTex = targetTextureSet.renderTex;
+				ddat.targetRenderViewPair = targetTextureSet.renderViewPair;
 				ddat.vp = vp;
 				ddat.viewProjVP = viewProjVP.mat;
 				
-				targetRenderViewPair.apply(context, true, true);
+				ddat.targetRenderViewPair.apply(context, true, true);
 				
 				//pddat.uneleven.depthStencilStates.zReadWrite.
 				
@@ -5940,30 +5890,11 @@ namespace UN11
 				texWidth = texWidthN;
 				texHeight = texHeightN;
 				
+				targetTextureSet.setDimension(texWidth, texHeight);
+				
 				vp = new AppliableViewport(0, 0, texWidth, texHeight, 0.0f, 1.0f);
 			}
 			
-			public void initTarget(Device device, Format format, TextureCollection textures)
-			{
-				targetTex = createRenderNamedTexture(device, "light_" + name, texWidth, texHeight, format, out targetRenderViewPair.renderView);
-				textures.Set(targetTex);
-			}
-			
-			public void initTarget(RenderTargetView targetRenderViewN)
-			{
-				targetRenderViewPair.renderView = targetRenderViewN;
-			}
-			
-			public void initTargetStencil(Device device)
-			{
-				createStencilBuffer(device, texWidth, texHeight, out targetStencilTex, out targetRenderViewPair.stencilView);
-			}
-			
-			public void initTargetStencil(DepthStencilView targetStencilViewN)
-			{
-				targetRenderViewPair.stencilView = targetStencilViewN;
-			}
-
 			public void updateLightCData()
 			{
 				if (useLightMap)
@@ -6071,14 +6002,14 @@ namespace UN11
 			public void applyTextures(DeviceContext context)
 			{
 				if (useLightMap)
-					targetTex.applyShaderResource(context, UN11.TextureSlot.lightTex);
+					targetTextureSet.renderTex.applyShaderResource(context, UN11.TextureSlot.lightTex);
 				if (useLightPattern)
 					patternTex.applyShaderResource(context, UN11.TextureSlot.lightPatternTex);
 			}
 			
 			public void setRenderTarget(DeviceContext context, bool clearDepth, bool clearColor)
 			{
-				targetRenderViewPair.apply(context, clearDepth, clearColor);
+				targetTextureSet.renderViewPair.apply(context, clearDepth, clearColor);
 			}
 
 			public void dirNormalAt(Vector3 camTarg)
@@ -7377,11 +7308,11 @@ namespace UN11
 			uneleven.loadAnimsFromFile("textA.uncrz", context);
 			
 			// describe frame
-			view = new UN11.View(device, "main", uneleven.matrices);
-			over = new UN11.Over(device, "main");
+			view = new UN11.View(device, "main", uneleven.matrices, uneleven.textures);
+			over = new UN11.Over(device, "main", uneleven.textures);
 			face = new UN11.Face(device, "main");
 			sun = new UN11.Light(device, "sun", uneleven.matrices);
-			torch = new UN11.Light(device, "torch", uneleven.matrices);
+			torch = new UN11.Light(device, "torch", uneleven.matrices, uneleven.textures);
 			telem = new UN11.TexElem("disp", null, new Rectangle(0, 0, view.texHeight, view.texHeight));
 			
 			ftdat = new UN11.FrameTickData();
@@ -7561,27 +7492,26 @@ namespace UN11
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
 				view.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
 				//view.initTarget(renderView);
-				view.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
+				view.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
 				//view.initTarget(context.OutputMerger.GetRenderTargets(1)[0]);
-				view.initSide(device, Format.R32G32B32A32_Float, uneleven.textures);
+				view.sideTextureSet.initRender(device, Format.R32G32B32A32_Float);
 				//view.initTargetStencil(depthView);
-				view.initTargetStencil(device);
-				view.initSideStencil(device);
+				view.targetTextureSet.initStencil(device);
+				view.sideTextureSet.initStencil(device);
 				view.initOverness(device);
 				view.clearColour = Color.DarkOliveGreen;
 				
 				// set up over
 				over.setDimension(view.texWidth, view.texHeight);
 				over.initOverness(device);
-				over.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
-				over.initTargetStencil(device);
+				over.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				over.targetTextureSet.initStencil(device);
 				over.texness.tex = uneleven.textures["view_main"];
 				over.texness.useTex = true;
 				over.tech = uneleven.techniques["simpleOver"];
 				over.clearColour = Color.DeepPink;
 				
 				// set up sun
-				sun.useLightMap = false;
 				sun.lightType = UN11.LightType.Point;
 				sun.dimX = 50;
 				sun.dimY = 50;
@@ -7595,17 +7525,16 @@ namespace UN11
 				torch.setDimension(view.texWidth, view.texHeight);
 				torch.setProj(UN11.ViewMode.Persp, (float)Math.PI / 8.0f, 1.0f, 0.1f, 50f);
 				torch.lightType = UN11.LightType.Persp;
-				torch.useLightMap = true;
 				torch.lightDepth = 50;
 				torch.lightAmbient = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
 				torch.lightColMod = new Vector4(1, 1, 1, 1);
 				torch.lightPos = new Vector3(0, 5, 0);
-				torch.initTarget(device, Format.R32G32B32A32_Float, uneleven.textures);
-				torch.initTargetStencil(device);
+				torch.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				torch.targetTextureSet.initStencil(device);
 				torch.lightEnabled = true;
 				torch.patternTex = uneleven.createTexture("white.png");
 				torch.useLightPattern = true; // don't really have any other choice
-				torch.targetRenderViewPair.clearColour = Color.Red;
+				torch.targetTextureSet.renderViewPair.clearColour = Color.Red;
 				torch.allowSkip = true;
 				torch.dirNormalAt(new Vector3(10, 0, 10));
 				
