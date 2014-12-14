@@ -82,7 +82,12 @@ namespace UN11
 		
 		public class TextureView
 		{
-			public ShaderResourceView texShaderView;
+			// some of these might not exist, so don't assume they do
+			public ShaderResourceView texShaderView {get; private set;}
+			
+			protected TextureView()
+			{
+			}
 			
 			public TextureView(ShaderResourceView texShaderViewN)
 			{
@@ -98,6 +103,11 @@ namespace UN11
 			{
 				context.PixelShader.SetShaderResource((int)slot, texShaderView);
 			}
+			
+			protected void setTexShaderView(ShaderResourceView texShaderViewN)
+			{
+				texShaderView = texShaderViewN;
+			}
 		}
 		
 		public class NamedTexture : TextureView, Named
@@ -107,25 +117,33 @@ namespace UN11
 			// some of these might not exist, so don't assume they do
 			public Texture2D tex;
 			
-//			public NamedTexture(string name) : base(name)
-//			{
-//				// joy
-//			}
+			protected NamedTexture(string nameN) : base()
+			{
+				name = nameN;
+			}
 			
 			public NamedTexture(string nameN, Texture2D texN, ShaderResourceView texShaderViewN) : base(texShaderViewN)
 			{
 				tex = texN;
 				name = nameN;
 			}
+			
+			protected void setTex(Texture2D texN, ShaderResourceView texShaderViewN)
+			{
+				tex = texN;
+				setTexShaderView(texShaderViewN);
+			}
 		}
 		
-		public class NamedRenderTexture : NamedTexture
+		public class DubiousNamedTexture : NamedTexture
 		{
-			public RenderTargetView texRenderView;
-			
-			public NamedRenderTexture(string name, Texture2D texN, ShaderResourceView texShaderViewN, RenderTargetView texRenderViewN) : base(name, texN, texShaderViewN)
+			public DubiousNamedTexture(string name) : base(name)
 			{
-				texRenderView = texRenderViewN;
+			}
+			
+			public new void setTex(Texture2D texN, ShaderResourceView texShaderViewN)
+			{
+				setTex(texN, texShaderViewN);
 			}
 		}
 		
@@ -170,6 +188,72 @@ namespace UN11
 			}
 		}
 		
+		// a rather dubious class
+		public class RenderTextureSet
+		{
+			public int texWidth {get; private set;}
+			public int texHeight {get; private set;}
+			
+			private DubiousNamedTexture dubiousTargetTex;
+			private Texture2D dubiousTargetStencilTex;
+			public RenderViewPair targetRenderViewPair {get; private set;}
+			
+			public NamedTexture targetTex
+			{
+				get
+				{
+					return dubiousTargetTex;
+				}
+			}
+			
+			public Texture2D targetStencilTex
+			{
+				get
+				{
+					return dubiousTargetStencilTex;
+				}
+			}
+			
+			public RenderTextureSet(string targetTexName, TextureCollection textures)
+			{
+				dubiousTargetTex = new DubiousNamedTexture(targetTexName);
+				textures.Add(targetTex);
+			}
+			
+			protected void setRenderTex(Texture2D texN, ShaderResourceView texShaderViewN, RenderTargetView texRenderViewN)
+			{
+				targetRenderViewPair.renderView = texRenderViewN;
+				dubiousTargetTex.setTex(texN, texShaderViewN);
+			}
+			
+			// lovley exposed methods
+			public void setDimension(int texWidthN, int texHeightN)
+			{
+				texWidth = texWidthN;
+				texHeight = texHeightN;
+			}
+			
+			public void initTarget(Device device, Format format)
+			{
+				fillDubiousNamedRenderTexture(device, dubiousTargetTex, texWidth, texHeight, format, out targetRenderViewPair.renderView);
+			}
+			
+			public void initTarget(RenderTargetView targetRenderViewN)
+			{
+				targetRenderViewPair.renderView = targetRenderViewN;
+			}
+			
+			public void initTargetStencil(Device device)
+			{
+				createStencilBuffer(device, texWidth, texHeight, out dubiousTargetStencilTex, out targetRenderViewPair.stencilView);
+			}
+			
+			public void initTargetStencil(DepthStencilView targetStencilViewN)
+			{
+				targetRenderViewPair.stencilView = targetStencilViewN;
+			}
+		}
+		
 		public static void createStencilBuffer(Device device, int texWidth, int texHeight, out Texture2D stencilTex, out DepthStencilView stencilView)
 		{
 			Texture2DDescription stencilDesc = new Texture2DDescription();
@@ -191,14 +275,13 @@ namespace UN11
 			stencilView = new DepthStencilView(device, stencilTex, stencilViewDesc);
 		}
 		
-		public static NamedRenderTexture createNamedRenderTexture(Device device, string name, int texWidth, int texHeight, Format format)
+		public static void fillDubiousNamedRenderTexture(Device device, DubiousNamedTexture dubiousNamedTex, int texWidth, int texHeight, Format format, out RenderTargetView texRenderView)
 		{
 			Texture2D tex;
 			ShaderResourceView texShaderView;
-			RenderTargetView texRenderView;
 			
 			createTextureSet(device, texWidth, texHeight, format, out tex, out texRenderView, out texShaderView);
-			return new NamedRenderTexture(name, tex, texShaderView, texRenderView);
+			dubiousNamedTex.setTex(tex, texShaderView);
 		}
 		
 		public static NamedTexture createRenderNamedTexture(Device device, string name, int texWidth, int texHeight, Format format, out RenderTargetView texRenderView)
