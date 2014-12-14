@@ -6055,6 +6055,111 @@ namespace UN11
 			public SlideDrawDataList slideDrawDatas = new UN11.SlideDrawDataList();
 		}
 		
+		public class DependancyMapping<T>
+		{
+			private class Dependancy<T>
+			{
+				public T a {get; private set;}
+				public T b {get; private set;}
+				
+				// a depends on b
+				public Dependancy(T aN, T bN)
+				{
+					a = aN;
+					b = bN;
+				}
+			}
+			
+			private List<Dependancy<T>> dependancies = new List<Dependancy<T>>();
+			
+			public DependancyMapping()
+			{
+			}
+			
+			/// <summary>
+			/// Adds a dependancy (a depends on b), does not check for duplicates
+			/// </summary>
+			public void addDependancy(T a, T b)
+			{
+				dependancies.Add(new Dependancy<T>(a, b));
+			}
+			
+			/// <summary>
+			/// Adds a dependancy (a depends on b) if such a dependancy does not already exist
+			/// </summary>
+			public void addDependancyClean(T a, T b)
+			{
+				foreach (Dependancy<T> d in dependancies)
+				{
+					if (d.a.Equals(a) && d.b.Equals(b))
+						return;
+				}
+				
+				dependancies.Add(new Dependancy<T>(a, b));
+			}
+			
+			// sloooooow
+			public DependancyMapping<T> rebuildClean()
+			{
+				DependancyMapping<T> cleanCopy = new UN11.DependancyMapping<T>();
+				
+				foreach (Dependancy<T> d in dependancies)
+				{
+					cleanCopy.addDependancyClean(d.a, d.b);
+				}
+				
+				return cleanCopy;
+			}
+			
+			public DependancyTree<T> buildBulkTree()
+			{
+				Dictionary<T, DependancyTree<T>> trees = new Dictionary<T, UN11.DependancyTree<T>>();
+				
+				DependancyTree<T> top = new UN11.DependancyTree<T>();
+				
+				foreach (Dependancy<T> d in dependancies)
+				{
+					DependancyTree<T> adt;
+					DependancyTree<T> bdt;
+					
+					if (!trees.TryGetValue(d.a, out adt))
+					{
+						adt = new UN11.DependancyTree<T>(d.a);
+						trees.Add(d.a, adt);
+						top.addDependancy(adt);
+					}
+					
+					if (!trees.TryGetValue(d.b, out bdt))
+					{
+						bdt = new UN11.DependancyTree<T>(d.b);
+						trees.Add(d.b, bdt);
+						top.addDependancy(bdt);
+					}
+					
+					adt.addDependancy(bdt);
+				}
+				
+				return top;
+			}
+			
+			/// <summary>
+			/// Flatten the DependacyMapping onto the end of a list
+			/// </summary>
+			/// <param name="res">The list to add to</param>
+			public void flattenOnto(IList<T> res)
+			{
+				buildBulkTree().flattenOnto(res);
+			}
+			
+			/// <summary>
+			/// Flatten the DependacyMapping into a new list
+			/// </summary>
+			public LT flatten<LT>() where LT : IList<T>, new()
+			{
+				return buildBulkTree().flatten<LT>();
+			}
+		}
+		
 		/// <summary>
 		/// Represents a Dependancy Tree of things, and provides methods to flatten them to a list
 		/// Does not check if your tree is malformed (contains cycles, etc.)
@@ -7281,7 +7386,6 @@ namespace UN11
 	/// </summary>
 	internal class Program
 	{
-		
 		//	  [STAThread]
 		private static void Main()
 		{
@@ -7314,7 +7418,7 @@ namespace UN11
 		UN11.FrameDrawData fddat;
 		UN11.FrameTickData ftdat;
 		
-		UN11.DependancyTree<UN11.SlideDrawData> slideTree;
+		UN11.DependancyMapping<UN11.SlideDrawData> slideDependancies;
 		
 		Stopwatch clock;
 		
@@ -7382,8 +7486,6 @@ namespace UN11
 			cddat = new UN11.FaceDrawData(face, vt);
 			tddat = new UN11.LightDrawData(torch);
 			
-			slideTree = new UN11.DependancyTree<UN11.SlideDrawData>();
-			
 			cddat.elems.Add(telem);
 			
 			ftdat.updateable.Add(view);
@@ -7440,22 +7542,14 @@ namespace UN11
 			tddat.geometryDrawDatas.Add(mmddat);
 			//
 			
-			UN11.DependancyTree<UN11.SlideDrawData>.DependancyTreeConstructor k = UN11.DependancyTree<UN11.SlideDrawData>.construct;
+			slideDependancies = new UN11.DependancyMapping<UN11.SlideDrawData>();
 			
-			// build slide dependancy tree and feed it to fddat
-			slideTree.addDependancy(
-				k(cddat, 
-					k(oddat, 
-						k(vddat, 
-				      		k(tddat
-							)
-						)
-					)
-				)
-			);
+			slideDependancies.addDependancy(cddat, oddat);
+			slideDependancies.addDependancy(oddat, vddat);
+			slideDependancies.addDependancy(vddat, tddat);
 			
-			slideTree.flattenOnto(fddat.slideDrawDatas);
-
+			slideDependancies.flattenOnto(fddat.slideDrawDatas);
+			
 			// Use clock
 			clock = new Stopwatch();
 			clock.Start();
