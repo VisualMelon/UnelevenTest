@@ -2303,6 +2303,10 @@ namespace UN11
 			}
 		}
 		
+		public class SectionList : NamedList<Section>
+		{
+		}
+		
 		public struct OffRot
 		{
 			public Vector3 offset;
@@ -2513,6 +2517,10 @@ namespace UN11
 				
 				segBox.fillVectors();
 			}
+		}
+		
+		public class SegmentList : NamedList<Segment>
+		{
 		}
 		
 		public class BBox
@@ -3314,13 +3322,20 @@ namespace UN11
 			}
 		}
 		
-		public abstract class GeometryDrawData
+		public interface GeometryDrawData
 		{
-			public abstract void drawGeometry(DeviceContext context, DrawData ddat);
+			void drawGeometry(DeviceContext context, DrawData ddat);
 		}
 		
-		public class GeometryDrawDataList : List<GeometryDrawData>
+		public class GeometryDrawDataList : List<GeometryDrawData>, GeometryDrawData
 		{
+			public void drawGeometry(DeviceContext context, DrawData ddat)
+			{
+				foreach (GeometryDrawData gdd in this)
+				{
+					gdd.drawGeometry(context, ddat);
+				}
+			}
 		}
 		
 		//
@@ -3335,7 +3350,7 @@ namespace UN11
 				cube = cubeN;
 			}
 			
-			public override void drawGeometry(DeviceContext context, UN11.DrawData ddat)
+			public void drawGeometry(DeviceContext context, UN11.DrawData ddat)
 			{
 				cube.draw(context, this, ddat);
 			}
@@ -4491,9 +4506,58 @@ namespace UN11
 				mEnt = mEntN;
 			}
 			
-			public override void drawGeometry(DeviceContext context, UN11.DrawData ddat)
+			public void drawGeometry(DeviceContext context, UN11.DrawData ddat)
 			{
 				mEnt.draw(context, this, ddat);
+			}
+		}
+		
+		public class LambdaGeometryDrawData : GeometryDrawData
+		{
+			public Action pre;
+			public GeometryDrawData geometryDrawData;
+			public Action post;
+			
+			public LambdaGeometryDrawData(Action preN, GeometryDrawData geometryDrawDataN, Action postN)
+			{
+				pre = preN;
+				geometryDrawData = geometryDrawDataN;
+				post = postN;
+			}
+			
+			public void drawGeometry(DeviceContext context, DrawData ddat)
+			{
+				if (pre != null)
+					pre();
+				if (geometryDrawData != null)
+					geometryDrawData.drawGeometry(context, ddat);
+				if (pre != null)
+					post();
+			}
+		}
+		
+		public class LambdaGeometryDrawData<LRT> : GeometryDrawData
+		{
+			public Func<LRT> pre;
+			public GeometryDrawData geometryDrawData;
+			public Action<LRT> post;
+			
+			public LambdaGeometryDrawData(Func<LRT> preN, GeometryDrawData geometryDrawDataN, Action<LRT> postN)
+			{
+				pre = preN;
+				geometryDrawData = geometryDrawDataN;
+				post = postN;
+			}
+			
+			public void drawGeometry(DeviceContext context, DrawData ddat)
+			{
+				LRT r = default(LRT);
+				if (pre != null)
+					r = pre();
+				if (geometryDrawData != null)
+					geometryDrawData.drawGeometry(context, ddat);
+				if (pre != null)
+					post(r);
 			}
 		}
 		
@@ -4507,6 +4571,7 @@ namespace UN11
 				mdl = mdlN;
 			}
 			
+			// TODO: do we really want to pass the ModelEntityDrawData?
 			public void draw(DeviceContext context, ModelEntityDrawData meddat, DrawData ddat)
 			{
 				mdl.draw(context, ddat);
@@ -4534,7 +4599,7 @@ namespace UN11
 				mdl = mdlN;
 			}
 			
-			public override void drawGeometry(DeviceContext context, UN11.DrawData ddat)
+			public void drawGeometry(DeviceContext context, UN11.DrawData ddat)
 			{
 				if (batched)
 					mdl.drawBatched(context, this, ddat);
@@ -7502,7 +7567,9 @@ namespace UN11
 			ment.or.offset.Y = -15;
 			ment.update(true);
 			ment.mdl.noCull = true;
-			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(ment));
+			//vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(ment));
+			// disable water for testing
+			vddat.geometryDrawDatas.Add(new UN11.LambdaGeometryDrawData(() => ment.mdl.getSec("water").sectionEnabled = false, new UN11.ModelEntityDrawData(ment), () => ment.mdl.getSec("water").sectionEnabled = true));
 			
 			UN11.ModelEntity tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, true), "tent");
 			tent.update(true);
