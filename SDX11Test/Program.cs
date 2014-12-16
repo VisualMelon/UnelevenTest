@@ -237,7 +237,7 @@ namespace UN11
 			
 			public void initRender(Device device, Format format)
 			{
-				fillDubiousNamedRenderTexture(device, dubiousRenderTex, texWidth, texHeight, format, out renderViewPair.renderView);
+				fillRenderDubiousNamedTexture(device, dubiousRenderTex, texWidth, texHeight, format, out renderViewPair.renderView);
 			}
 			
 			public void initRender(RenderTargetView targetRenderViewN)
@@ -277,7 +277,7 @@ namespace UN11
 			stencilView = new DepthStencilView(device, stencilTex, stencilViewDesc);
 		}
 		
-		public static void fillDubiousNamedRenderTexture(Device device, DubiousNamedTexture dubiousNamedTex, int texWidth, int texHeight, Format format, out RenderTargetView texRenderView)
+		public static void fillRenderDubiousNamedTexture(Device device, DubiousNamedTexture dubiousNamedTex, int texWidth, int texHeight, Format format, out RenderTargetView texRenderView)
 		{
 			Texture2D tex;
 			ShaderResourceView texShaderView;
@@ -614,7 +614,7 @@ namespace UN11
 				tti = -1;
 			}
 			
-			public VertexPC(Vector3 posN, Vector3 colN, float ttiN) : this()
+			public VertexPC(Vector3 posN, Vector4 colN) : this()
 			{
 				pos3 = posN;
 				w = 1.0F;
@@ -624,8 +624,22 @@ namespace UN11
 				nz = 0.0F;
 				nw = 0.0F;
 				
-				a = 1.0F;
-				col3 = colN;
+				col4 = colN;
+				
+				tti = -1;
+			}
+			
+			public VertexPC(Vector3 posN, Vector4 colN, float ttiN) : this()
+			{
+				pos3 = posN;
+				w = 1.0F;
+				
+				nx = 0.0F;
+				ny = 0.0F;
+				nz = 0.0F;
+				nw = 0.0F;
+				
+				col4 = colN;
 				
 				tti = ttiN;
 			}
@@ -1264,6 +1278,11 @@ namespace UN11
 			public void apply(DeviceContext context)
 			{
 				context.Rasterizer.SetViewport(vp);
+			}
+			
+			public Vector3 unproject(Vector3 v, ref Matrix viewProj)
+			{
+				return Vector3.Unproject(v, vp.X, vp.Y, vp.Width, vp.Height, vp.MinDepth, vp.MaxDepth, viewProj);
 			}
 		}
 		
@@ -3358,7 +3377,8 @@ namespace UN11
 		
 		public class Cube : ANamed
 		{
-			Buffer vbuff;
+			private Buffer vbuff;
+			private VertexBufferBinding vbuffBinding;
 			
 			public Cube(Device device) : base("TestCube")
 			{
@@ -3406,13 +3426,15 @@ namespace UN11
 									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
 									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
 									  });
+				
+				vbuffBinding = new VertexBufferBinding(vbuff, UN11.VertexPC.size, 0);
 			}
 			
 			public void draw(DeviceContext context, CubeDrawData cddat, DrawData ddat)
 			{
 				ddat.pddat.uneleven.techniques.Get("dull2").passes[0].apply(context);
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList;
-				context.InputAssembler.SetVertexBuffers(0, new VertexBufferBinding(vbuff, UN11.VertexPC.size, 0));
+				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
 				ddat.targetRenderViewPair.apply(context, false, false);
 				ddat.eyeBuffer.applyVStage(context);
 				ddat.eyeBuffer.update(context);
@@ -3423,9 +3445,153 @@ namespace UN11
 				context.Draw(36, 0);
 			}
 		}
+		
+		public class LinesDrawData : GeometryDrawData
+		{
+			public Lines lines;
+			
+			public LinesDrawData(Lines linesN)
+			{
+				lines = linesN;
+			}
+			
+			public void drawGeometry(DeviceContext context, UN11.DrawData ddat)
+			{
+				lines.draw(context, this, ddat);
+			}
+		}
+		
+		public class Lines : ANamed
+		{
+			private Buffer vbuff;
+			private VertexBufferBinding vbuffBinding;
+			public int capacity {get; private set;} // vPC capacity (i.e. /2 to get line capacity)
+			private List<VertexPC> verticesPC = new List<VertexPC>();
+			
+			private int stride = UN11.VertexPC.size;
+			
+			public int lineCapacity
+			{
+				get
+				{
+					return capacity / 2;
+				}
+			}
+			
+			public Lines(Device device, int lineCapacityN) : base("Lines")
+			{
+				capacity = lineCapacityN * 2;
+				createVBuff(device);
+			}
+			
+			public void trim(Device device)
+			{
+				if (capacity == verticesPC.Count)
+					return;
+				
+				capacity = verticesPC.Count;
+				createVBuff(device);
+			}
+			
+			private void ensureCapacity(Device device)
+			{
+				if (verticesPC.Count > capacity)
+				{
+					capacity = Math.Max(2 * capacity, verticesPC.Count);
+					createVBuff(device);
+				}
+			}
+			
+			private void clampCapacity()
+			{
+				if (verticesPC.Count > capacity)
+					verticesPC.RemoveRange(capacity, verticesPC.Count - capacity);
+			}
+			
+			// rejects if you have too many vPCs
+			public void update(DeviceContext context)
+			{
+				clampCapacity();
+				fillVBuff(context);
+			}
+			
+			public void updateResize(Device device, DeviceContext context)
+			{
+				ensureCapacity(device);
+				fillVBuff(context);
+			}
+			
+			public void push(VertexPC a, VertexPC b)
+			{
+				verticesPC.Add(a);
+				verticesPC.Add(b);
+			}
+			
+			public void push(Ray r, Color4 col)
+			{
+				verticesPC.Add(new VertexPC(r.Position, col.ToVector4()));
+				verticesPC.Add(new VertexPC(r.Position + r.Direction, col.ToVector4()));
+			}
+			
+			public void pop()
+			{
+				verticesPC.RemoveRange(verticesPC.Count - 2, 2);
+			}
+			
+			public void insert(VertexPC a, VertexPC b, int idx)
+			{
+				verticesPC.Insert(idx * 2, b);
+				verticesPC.Insert(idx * 2, a);
+			}
+			
+			public void extract(int idx, int count)
+			{
+				verticesPC.RemoveRange(idx * 2, count * 2);
+			}
+			
+			private void createVBuff(Device device)
+			{
+				vbuff = new Buffer(device, new BufferDescription(capacity * stride, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
+				vbuffBinding = new VertexBufferBinding(vbuff, stride, 0);
+			}
+			
+			private unsafe void fillVBuff(DeviceContext context)
+			{
+				DataStream dstream;
+				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
+				
+				VertexPC[] vPCarr = verticesPC.ToArray();
+				
+				byte* buffPtr = (byte*)dstream.DataPointer;
+				fixed (VertexPC* vertexPtrVP = vPCarr)
+				{
+					byte* verticesPtr = (byte*)vertexPtrVP;
+					
+					Utils.copy(verticesPtr, buffPtr, vPCarr.Length * stride);
+				}
+				
+				dstream.Dispose();
+				context.UnmapSubresource(vbuff, 0);
+			}
+			
+			public void draw(DeviceContext context, LinesDrawData lddat, DrawData ddat)
+			{
+				ddat.pddat.uneleven.techniques.Get("dull2").passes[0].apply(context);
+				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.LineList;
+				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
+				ddat.targetRenderViewPair.apply(context, false, false);
+				ddat.eyeBuffer.applyVStage(context);
+				ddat.eyeBuffer.update(context);
+				ddat.pddat.uneleven.blendStates.none.apply(context);
+				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
+				ddat.pddat.uneleven.rasterizerStates.noBackcull.apply(context);
+				
+				context.Draw(verticesPC.Count, 0);
+			}
+		}
 		// end test geometry
 		
-		// abstract sort of representation (class specific)
+		// abstract sort of representation (class specific) (FIXME: what is this comment on about?)
 		public class Anim : ANamed
 		{
 			public class ActList : List<Act>
@@ -4192,9 +4358,9 @@ namespace UN11
 				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
 				
 				byte* buffPtr = (byte*)dstream.DataPointer;
-				fixed (VertexPC* vertexPtrVPC = verticesPC)
+				fixed (VertexPC* vertexPtrVP = verticesPC)
 				{
-					byte* verticesPtr = (byte*)vertexPtrVPC;
+					byte* verticesPtr = (byte*)vertexPtrVP;
 					
 					if (batchCopies == 1)
 					{
@@ -4846,6 +5012,7 @@ namespace UN11
 		{
 		}
 		
+		// TODO: work out what this is
 		public class ViewTrans
 		{
 			public float bbuffWidth, bbuffHeight;
@@ -5420,6 +5587,44 @@ namespace UN11
 
 		}
 		
+		public class ViewElem : TexElem
+		{
+			public View view;
+			
+			public ViewElem(string nameN, IElem parentN, Rectangle rectN, View viewN) : base(nameN, parentN, rectN)
+			{
+				view = viewN;
+				texness.tex = view.targetTextureSet.renderTex;
+				texness.useTex = true;
+			}
+			
+			public Vector3 unproject(Vector3 v)
+			{
+				return view.unprojectVPScaled(v, rect.Width, rect.Height);
+			}
+			
+			// far is pretty meaningless, just changes direction (forward/backwards)
+			public Ray unproject(int x, int y, int near, int far)
+			{
+				Vector3 nearVec = unproject(new Vector3(x, y, near));
+				Vector3 farVec = unproject(new Vector3(x, y, far));
+				Vector3 dirVec = farVec - nearVec;
+				dirVec.Normalize();
+				
+				return new Ray(nearVec, dirVec);
+			}
+			
+			public Ray unproject(int x, int y)
+			{
+				Vector3 nearVec = unproject(new Vector3(x, y, 0f));
+				Vector3 farVec = unproject(new Vector3(x, y, 1f));
+				Vector3 dirVec = farVec - nearVec;
+				dirVec.Normalize();
+				
+				return new Ray(nearVec, dirVec);
+			}
+		}
+		
 		public class TextElem : AElem
 		{
 			public string text;
@@ -5734,6 +5939,18 @@ namespace UN11
 			{
 				overness = new Overness(texWidth, texHeight);
 				overness.build(device);
+			}
+			
+			public Vector3 unprojectVP(Vector3 v)
+			{
+				return vp.unproject(v, ref viewProjVP.mat);
+			}
+			
+			public Vector3 unprojectVPScaled(Vector3 v, float w, float h)
+			{
+				v.X = (v.X / w) * vp.vp.Width;
+				v.Y = (v.Y / h) * vp.vp.Height;
+				return vp.unproject(v, ref viewProjVP.mat);
 			}
 			
 			public void setProj(ViewMode viewModeN, float dimXN, float dimYN, float near, float far)
@@ -6122,7 +6339,7 @@ namespace UN11
 		
 		public class DependancyMapping<T>
 		{
-			private class Dependancy<T>
+			private class Dependancy
 			{
 				public T a {get; private set;}
 				public T b {get; private set;}
@@ -6135,7 +6352,7 @@ namespace UN11
 				}
 			}
 			
-			private List<Dependancy<T>> dependancies = new List<Dependancy<T>>();
+			private List<Dependancy> dependancies = new List<Dependancy>();
 			
 			public DependancyMapping()
 			{
@@ -6146,7 +6363,7 @@ namespace UN11
 			/// </summary>
 			public void addDependancy(T a, T b)
 			{
-				dependancies.Add(new Dependancy<T>(a, b));
+				dependancies.Add(new Dependancy(a, b));
 			}
 			
 			/// <summary>
@@ -6154,13 +6371,13 @@ namespace UN11
 			/// </summary>
 			public void addDependancyClean(T a, T b)
 			{
-				foreach (Dependancy<T> d in dependancies)
+				foreach (Dependancy d in dependancies)
 				{
 					if (d.a.Equals(a) && d.b.Equals(b))
 						return;
 				}
 				
-				dependancies.Add(new Dependancy<T>(a, b));
+				dependancies.Add(new Dependancy(a, b));
 			}
 			
 			// sloooooow
@@ -6168,7 +6385,7 @@ namespace UN11
 			{
 				DependancyMapping<T> cleanCopy = new UN11.DependancyMapping<T>();
 				
-				foreach (Dependancy<T> d in dependancies)
+				foreach (Dependancy d in dependancies)
 				{
 					cleanCopy.addDependancyClean(d.a, d.b);
 				}
@@ -6182,7 +6399,7 @@ namespace UN11
 				
 				DependancyTree<T> top = new UN11.DependancyTree<T>();
 				
-				foreach (Dependancy<T> d in dependancies)
+				foreach (Dependancy d in dependancies)
 				{
 					DependancyTree<T> adt;
 					DependancyTree<T> bdt;
@@ -7470,12 +7687,14 @@ namespace UN11
 		
 		UN11.ViewTrans vt;
 		
+		UN11.Cube cube;
+		UN11.Lines lines;
 		UN11.View view;
 		UN11.Over over;
 		UN11.Face face;
 		UN11.Light sun;
 		UN11.Light torch;
-		UN11.TexElem telem;
+		UN11.ViewElem telem;
 		UN11.ViewDrawData vddat;
 		UN11.OverDrawData oddat;
 		UN11.FaceDrawData cddat;
@@ -7541,7 +7760,11 @@ namespace UN11
 			uneleven.loadAnimsFromFile("textA.uncrz", context);
 			
 			// face stuff
-			telem = new UN11.TexElem("disp", null, new Rectangle(0, 0, view.texHeight, view.texHeight));
+			telem = new UN11.ViewElem("disp", null, new Rectangle(0, 0, view.texHeight, view.texHeight), view);
+			
+			// weird stuff
+			cube = new UN11.Cube(device);
+			lines = new UN11.Lines(device, 32);
 			
 			// describe frame
 			ftdat = new UN11.FrameTickData();
@@ -7555,7 +7778,9 @@ namespace UN11
 			
 			ftdat.updateable.Add(view);
 			
-			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(new UN11.Cube(device)));
+			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(cube));
+			vddat.geometryDrawDatas.Add(new UN11.LinesDrawData(lines));
+			tddat.geometryDrawDatas.Add(new UN11.LinesDrawData(lines));
 			
 			vddat.lights.Add(sun);
 			vddat.lights.Add(torch);
@@ -7641,6 +7866,14 @@ namespace UN11
 					form.Close();
 				else if (args.KeyCode == Keys.B)
 					mmddat.batched = !mmddat.batched;
+			};
+			
+			form.MouseDown += (sender, args) =>
+			{
+				Ray r = telem.unproject(args.X, args.Y);
+				r.Direction *= 100;
+				lines.push(r, new Color4(1f, 1f, 0f, 1f));
+				lines.updateResize(device, context);
 			};
 			
 			perform();
@@ -7795,7 +8028,7 @@ namespace UN11
 			}
 			
 			var time = clock.ElapsedMilliseconds / 10000.0f;
-
+			
 			// Clear views
 			//context.ClearDepthStencilView(depthView, DepthStencilClearFlags.Depth, 1.0f, 0);
 			//context.ClearRendedothrTargetView(renderView, Color.Black);
