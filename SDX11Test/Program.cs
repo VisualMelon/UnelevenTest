@@ -629,6 +629,20 @@ namespace UN11
 				tti = -1;
 			}
 			
+			public VertexPC(Vector4 posN, Vector4 colN, float ttiN) : this()
+			{
+				pos4 = posN;
+				
+				nx = 0.0F;
+				ny = 0.0F;
+				nz = 0.0F;
+				nw = 0.0F;
+				
+				col4 = colN;
+				
+				tti = ttiN;
+			}
+			
 			public VertexPC(Vector3 posN, Vector4 colN, float ttiN) : this()
 			{
 				pos3 = posN;
@@ -3491,6 +3505,8 @@ namespace UN11
 			public VertexPCT[] verticesPCT;
 			public short[] indices;
 			
+			public PrimitiveTopology primTopology;
+			
 			public SpritePrimatives(string name) : base(name)
 			{
 				// joy
@@ -3505,10 +3521,11 @@ namespace UN11
 			
 			public void drawPrims(DeviceContext context, int batchCount)
 			{
-				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList; // might want to find a better way of doing this, but we used to pass this to DrawIndexedPrimative, so it can't be too slow
+				context.InputAssembler.PrimitiveTopology = primTopology; // might want to find a better way of doing this, but we used to pass this to DrawIndexedPrimative, so it can't be too slow
 				context.DrawIndexed(numIndices * batchCount, 0, 0);
 			}
 			
+			// TODO: do we want sprites to be able to define their own IV (i.e. in the file)?
 			public void createQuad(Device device, DeviceContext context, int spriteSizeN, int batchCopiesN)
 			{
 				spriteSize = spriteSizeN; // e.g. 2 (float4s): float4 loc, float4 dat
@@ -3518,10 +3535,10 @@ namespace UN11
 				List<VertexPCT> vPCTs = new List<UN11.VertexPCT>();
 				List<short> indicies = new List<short>();
 				
-				vPCTs.Add(new VertexPCT(new VertexPC(-1, -1, 1, 1, 1, 1, 0), 0, 0));
-				vPCTs.Add(new VertexPCT(new VertexPC(1, -1, 1, 1, 1, 1, 0), 1, 0));
-				vPCTs.Add(new VertexPCT(new VertexPC(1, 1, 1, 1, 1, 1, 0), 1, 1));
-				vPCTs.Add(new VertexPCT(new VertexPC(-1, 1, 1, 1, 1, 1, 0), 0, 1));
+				vPCTs.Add(new VertexPCT(new VertexPC(new Vector4(-1, -1, 1, 0), new Vector4(1, 1, 1, 1), 0), 0, 0));
+				vPCTs.Add(new VertexPCT(new VertexPC(new Vector4(1, -1, 1, 0), new Vector4(1, 1, 1, 1), 0), 1, 0));
+				vPCTs.Add(new VertexPCT(new VertexPC(new Vector4(1, 1, 1, 0), new Vector4(1, 1, 1, 1), 0), 1, 1));
+				vPCTs.Add(new VertexPCT(new VertexPC(new Vector4(-1, 1, 1, 0), new Vector4(1, 1, 1, 1), 0), 0, 1));
 		
 				indicies.Add((short)0);
 				indicies.Add((short)1);
@@ -3531,6 +3548,8 @@ namespace UN11
 				indicies.Add((short)2);
 				indicies.Add((short)3);
 		
+				primTopology = PrimitiveTopology.TriangleList;
+				
 				numVertices = vPCTs.Count;
 				createVBuff(device, context, vPCTs.ToArray());
 				numIndices = indicies.Count;
@@ -5354,7 +5373,6 @@ namespace UN11
 				mdl = mdlN;
 			}
 			
-			// TODO: do we really want to pass the ModelEntityDrawData?
 			public void draw(DeviceContext context, ModelEntityDrawData meddat, DrawData ddat)
 			{
 				mdl.draw(context, ddat);
@@ -5756,7 +5774,7 @@ namespace UN11
 		{
 		}
 		
-		// TODO: make this better (someone wrote from Barembs)
+		// TODO: make this better (somewhat wrote from Barembs)
 		public interface IElem : Named
 		{
 			bool enabled {get;}
@@ -6164,6 +6182,7 @@ namespace UN11
 				if (tech == null || clcTexVerts == null)
 					return;
 				
+				pddat.uneleven.blendStates.addSrcInvSrc.apply(context);
 				texness.applyTextures(context);
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
 				
@@ -6808,6 +6827,7 @@ namespace UN11
 				lightBuffer.data.lightAmbient = lightAmbient;
 				lightBuffer.data.lightColMod = lightColMod;
 				lightBuffer.data.lightDepth = lightDepth;
+				lightBuffer.data.lightDodge = 0.011f; // HACK: help
 				lightBuffer.data.lightCoof = 1.0f; // HACK: are we removing this?
 				lightBuffer.data.lightType = (float)lightType;
 			}
@@ -6840,6 +6860,7 @@ namespace UN11
 				lightMapBuffer.data.lightAmbient = lightAmbient;
 				lightMapBuffer.data.lightColMod = lightColMod;
 				lightMapBuffer.data.lightDepth = lightDepth;
+				lightMapBuffer.data.lightDodge = 0.011f; // HACK: help
 				lightMapBuffer.data.lightCoof = 1.0f; // HACK: are we removing this?
 				lightMapBuffer.data.lightType = (float)lightType;
 			}
@@ -7725,7 +7746,7 @@ namespace UN11
 				
 				FileParsingExceptionThrower throwFPE = (msg) =>
 				{
-					throw new FileParsingException("loadTechniquesFromFile", fileName, lnum, line, msg);
+					throw new FileParsingException("loadModelsFromFile", fileName, lnum, line, msg);
 				};
 				
 				while (!reader.EndOfStream)
@@ -8279,7 +8300,7 @@ namespace UN11
 				
 				FileParsingExceptionThrower throwFPE = (msg) =>
 				{
-					throw new FileParsingException("loadTechniquesFromFile", fileName, lnum, line, msg);
+					throw new FileParsingException("loadSpritesFromFile", fileName, lnum, line, msg);
 				};
 				
 				while (!reader.EndOfStream)
@@ -8626,7 +8647,7 @@ namespace UN11
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
-			for (int i = 0; i < n * n * n / 1000; i++)
+			for (int i = 0; i < n * n / 10; i++)
 			{
 				tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, false), "tent" + i);
 			again:
@@ -8654,11 +8675,13 @@ namespace UN11
 			UN11.Sprite smoke = uneleven.sprites["smoke"];
 			ftdat.updateable.Add(smoke); // bit awkward
 			
+			n += 20; // more coverage, just for fun
+			
 			msddat = new UN11.ManySpriteDrawData(smoke, UN11.SpriteDrawFlags.colourDefault);
-			for (int i = 0; i < 1000; i++)
+			for (int i = 0; i < n * n / 1; i++)
 			{
 				UN11.SpriteData temp = new UN11.SpriteData(smoke);
-				temp[smoke.layout.Position0] = new Vector4(rnd.NextFloat(-n, n), 10, rnd.NextFloat(-n, n), 1f);
+				temp[smoke.layout.Position0] = new Vector4(rnd.NextFloat(-n, n), rnd.NextFloat(-15, -10), rnd.NextFloat(-n, n), 1f);
 				temp[smoke.layout.Other0] = new Vector4(0.5f, 0.001f, 5f, 0.1f);
 				
 				msddat.sDats.Add(temp);
@@ -8823,6 +8846,7 @@ namespace UN11
 				sun.lightColMod = new Vector4(1, 1, 1, 1);
 				sun.lightPos = new Vector3(0, 10, 5);
 				sun.lightEnabled = true;
+				sun.allowSkip = false; // provides ambience
 				
 				// set up torch
 				torch.setDimension(view.texWidth, view.texHeight);

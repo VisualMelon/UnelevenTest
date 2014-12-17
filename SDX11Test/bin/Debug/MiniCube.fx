@@ -557,6 +557,21 @@ STD_MCR_VShade_Tex_Light(Ortho)
 STD_MCR_VShade_Tex_Light(Persp)
 STD_MCR_VShade_Tex_Light(Point)
 
+#define STD_MCR_VShade_Tex_Alpha_Light(lightName) \
+VS_Output_Tex VShade_Tex_Alpha_Light##lightName##(VS_Input_Tex inp) \
+{ \
+	VS_Output_Tex outp = (VS_Output_Tex)0; \
+	outp.pos = lightTrans##lightName##VP(mul(inp.pos, transarr[inp.tti])); \
+	outp.altPos = outp.pos; \
+	outp.col = inp.col; \
+	outp.txc = inp.txc; \
+	return outp; \
+}
+
+STD_MCR_VShade_Tex_Alpha_Light(Ortho)
+STD_MCR_VShade_Tex_Alpha_Light(Persp)
+STD_MCR_VShade_Tex_Alpha_Light(Point)
+
 PS_Output PShade_Tex(VS_Output_Tex inp)
 {
 	PS_Output outp = (PS_Output)0;
@@ -654,7 +669,6 @@ PS_Output PShade_Tex_Alpha_Light##lightName##(VS_Output_Tex inp) \
 	float num = inp.altPos.z; \
 	PS_Output outp = (PS_Output)0; \
 	outp.col.x = num; \
-	outp.col.x = 1; \
  \
 	return outp; \
 }
@@ -814,25 +828,26 @@ VS_Output_Tex VShade_Sprite_Smoke(VS_Input_Tex inp)
 {
 	VS_Output_Tex outp = (VS_Output_Tex)0;
 	float4 centre = (float4)0;
+	float4 offset = inp.pos;
 	if (inp.tti >= 0)
 	{
 		centre = spriteData[inp.tti];
 	}
 
 	float4 oth = spriteData[inp.tti + 1];
-	//inp.pos *= spriteDim; // breaks stuff
+	offset *= spriteDim; // breaks stuff
 	outp.col = inp.col;
 
 	if (oth.x > oth.w)
 	{
 		float smod = (oth.x - oth.w) / (1 - oth.w);
-		inp.pos.x *= (1 + smod * oth.z);
-		inp.pos.y *= (1 + smod * oth.z);
+		offset.x *= (1 + smod * oth.z);
+		offset.y *= (1 + smod * oth.z);
 		outp.col.w *= (1 - smod);
 	}
 
 	centre = mul(centre, viewMat);
-	outp.pos = mul(centre + inp.pos, projMat);
+	outp.pos = mul(centre + offset, projMat);
 	outp.altPos = outp.pos;
 	outp.altPos.z = outp.altPos.z * outp.altPos.w * invFarDepth;
 	outp.txc = inp.txc;
