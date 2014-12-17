@@ -4,15 +4,14 @@ sprite smoke
 
 pretty colour
 colmod 1 1 1 1
-technique sprite_smoke
-technique_light sprite_light
+technique smokeSprite
 technique_over simpleSideOver
-texture white.png
+texture smoke.png
 lighting none
 alpha add
 end pretty
 
-prims quad8
+prims quad2
 
 layout pos0 0
 layout oth0 4
