@@ -3303,7 +3303,7 @@ namespace UN11
 			public Vector3 dim;
 			
 			public SpritePrimatives primatives;
-			public CompoundSpriteDataArrBuffer compoundSpriteDataArrBuffer;
+			public CompoundSpriteDataBuffer compoundSpriteDataArrBuffer;
 			
 			public int sdLen
 			{
@@ -3324,6 +3324,11 @@ namespace UN11
 					prettynessess[i] = new SpritePrettyness(device);
 			}
 			
+			public void createSpriteDataBuffers(Device device)
+			{
+				compoundSpriteDataArrBuffer = new CompoundSpriteDataBuffer(device, SpriteDataCData.maxSize / sdLen, sdLen);
+			}
+			
 			public void update()
 			{
 				foreach (SpritePrettyness sp in prettynessess)
@@ -3334,6 +3339,8 @@ namespace UN11
 			public void drawBatched(DeviceContext context, ManySpriteDrawData msddat, DrawData ddat)
 			{
 				SpritePrettyness prettyness = prettynessess[(int)ddat.sceneType];
+				
+				primatives.applyVIBuffers(context);
 				
 				ddat.targetRenderViewPair.apply(context, false, false);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
@@ -3610,13 +3617,13 @@ namespace UN11
 			}
 		}
 		
-		public class SpriteDataArrBuffer
+		public class SpriteDataBuffer
 		{
 			ConstBuffer<SpriteDataCData> spriteDataBuffer;
 			
-			public SpriteDataArrBuffer(Device device)
+			public SpriteDataBuffer(Device device)
 			{
-				spriteDataBuffer = new ConstBuffer<SpriteDataCData>(device, SpriteDataCData.maxSize);
+				spriteDataBuffer = new ConstBuffer<SpriteDataCData>(device, SpriteDataCData.defaultSlot);
 			}
 			
 			public unsafe void update(DeviceContext context)
@@ -3687,7 +3694,7 @@ namespace UN11
 			}
 		}
 		
-		public class CompoundSpriteDataArrBuffer : SpriteDataArrBuffer
+		public class CompoundSpriteDataBuffer : SpriteDataBuffer
 		{
 			public int maxCount {get; private set;}
 			public int sdLen {get; private set;}
@@ -3696,7 +3703,7 @@ namespace UN11
 			
 			public delegate void DrawDel(DeviceContext context, int count);
 			
-			public CompoundSpriteDataArrBuffer(Device device, int maxCountN, int sdLenN) : base(device)
+			public CompoundSpriteDataBuffer(Device device, int maxCountN, int sdLenN) : base(device)
 			{
 				maxCount = maxCountN;
 				sdLen = sdLenN;
@@ -7317,7 +7324,7 @@ namespace UN11
 			rasterizerStates = new RasterizerStates(device);
 			samplerStates = new SamplerStates(device);
 			spritePrimativesHandler = new SpritePrimativesHandler();
-			spritePrimativesHandler.roundupTheUsualSuspects(100);
+			spritePrimativesHandler.roundupTheUsualSuspects(SpriteDataCData.maxSize);
 			
 			timing = new Timing();
 			frameSpan = timing.newSpan("frameSpan");
@@ -8278,6 +8285,7 @@ namespace UN11
 						{
 							if (data[1] == "sprite")
 							{
+								curSprite.createSpriteDataBuffers(device);
 								sprites.Add(curSprite);
 								
 								count++;
