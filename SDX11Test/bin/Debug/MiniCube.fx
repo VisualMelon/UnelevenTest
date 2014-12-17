@@ -819,37 +819,25 @@ VS_Output_Tex VShade_Sprite_Smoke(VS_Input_Tex inp)
 		centre = spriteData[inp.tti];
 	}
 
-	outp.col = inp.col;
-
-	outp.pos = mul(centre + inp.pos, viewProj);
-	outp.altPos = outp.pos;
-	outp.altPos.z = outp.altPos.z * outp.altPos.w * invFarDepth;
-	outp.txc = inp.txc;
-
-	return outp;
-
-	/*VS_Output_Tex outp = (VS_Output_Tex)0;
-	float4 centre = (float4)0;
-	if (inp.tti >= 0)
-	{
-		centre = spriteData[inp.tti];
-	}
 	float4 oth = spriteData[inp.tti + 1];
-	inp.pos *= spriteDim;
+	//inp.pos *= spriteDim; // breaks stuff
 	outp.col = inp.col;
+
 	if (oth.x > oth.w)
 	{
 		float smod = (oth.x - oth.w) / (1 - oth.w);
-		inp.pos *= (1 + smod * oth.z);
+		inp.pos.x *= (1 + smod * oth.z);
+		inp.pos.y *= (1 + smod * oth.z);
 		outp.col.w *= (1 - smod);
 	}
+
 	centre = mul(centre, viewMat);
 	outp.pos = mul(centre + inp.pos, projMat);
 	outp.altPos = outp.pos;
 	outp.altPos.z = outp.altPos.z * outp.altPos.w * invFarDepth;
 	outp.txc = inp.txc;
 
-	return outp;*/
+	return outp;
 }
 
 PS_Output PShade_Sprite(VS_Output_Tex inp)

@@ -1922,17 +1922,6 @@ namespace UN11
 				
 				matrices = (NamedMatrix[])gin.matrices.Clone();
 			}
-			
-			// TODO: work out if this still needs to exist
-			public void setAlpha(DeviceContext context, DrawData ddat, AlphaMode alphaMode)
-			{
-				switch (alphaMode)
-				{
-					case AlphaMode.None:
-						ddat.pddat.uneleven.blendStates.none.apply(context); // or something like this
-						break;
-				}
-			}
 		}
 		
 		public enum SceneType : int
@@ -3249,6 +3238,19 @@ namespace UN11
 				// other
 				texness.applyTextures(context);
 			}
+			
+			public void applyAlpha(DeviceContext context, DrawData ddat)
+			{
+				switch (prettyness.alphaMode)
+				{
+					case AlphaMode.None:
+						ddat.pddat.uneleven.blendStates.none.apply(context); // or something like this
+						break;
+					case AlphaMode.Add:
+						ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
+						break;
+				}
+			}
 		}
 		
 		// TODO: this might need re-writing for performance (see SpriteArr)
@@ -3259,9 +3261,12 @@ namespace UN11
 			public bool batched = true;
 			public List<SpriteData> sDats = new List<UN11.SpriteData>();
 			
-			public ManySpriteDrawData(Sprite sprtN)
+			public SpriteDrawFlags flags;
+			
+			public ManySpriteDrawData(Sprite sprtN, SpriteDrawFlags flagsN)
 			{
 				sprt = sprtN;
+				flags = flagsN;
 			}
 			
 			public void drawGeometry(DeviceContext context, UN11.DrawData ddat)
@@ -3289,11 +3294,20 @@ namespace UN11
 			public Vec4Offset Other0 = Vec4Offset.invalid;
 		}
 		
+		public enum SpriteDrawFlags
+		{
+			depth = 1,
+			colour = 2,
+			
+			depthDefault = 1,
+			colourDefault = 2,
+		}
+		
 		public class SpriteCollection : NamedCollection<Sprite>
 		{
 		}
 		
-		public class Sprite : Named
+		public class Sprite : Named, IFrameUpdateable
 		{
 			public string name {get; private set;}
 			
@@ -3335,6 +3349,11 @@ namespace UN11
 					sp.update(dim);
 			}
 			
+			public void frameUpdate()
+			{
+				update();
+			}
+			
 			// TODO: implement this proper (alpha modes, etc. etc.)
 			public void drawBatched(DeviceContext context, ManySpriteDrawData msddat, DrawData ddat)
 			{
@@ -3343,7 +3362,10 @@ namespace UN11
 				primatives.applyVIBuffers(context);
 				
 				ddat.targetRenderViewPair.apply(context, false, false);
-				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
+				if ((msddat.flags & SpriteDrawFlags.depth) > 0)
+					ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
+				else
+					ddat.pddat.uneleven.depthStencilStates.zRead.apply(context);
 				ddat.pddat.uneleven.rasterizerStates.noBackcull.apply(context);
 				
 				ddat.eyeBuffer.applyVStage(context);
@@ -3359,7 +3381,11 @@ namespace UN11
 				
 				prettyness.apply(context);
 				
-				ddat.pddat.uneleven.blendStates.none.apply(context);
+				//ddat.pddat.uneleven.blendStates.none.apply(context);
+				if ((msddat.flags & SpriteDrawFlags.colour) > 0)
+					prettyness.applyAlpha(context, ddat);
+				else
+					ddat.pddat.uneleven.blendStates.addZeroOne.apply(context);
 				
 				// plain pass
 				if (ddat.sceneType == SceneType.Light)
@@ -8626,8 +8652,10 @@ namespace UN11
 			
 			// smoke!!
 			UN11.Sprite smoke = uneleven.sprites["smoke"];
-			msddat = new UN11.ManySpriteDrawData(smoke);
-			for (int i = 0; i < 100; i++)
+			ftdat.updateable.Add(smoke); // bit awkward
+			
+			msddat = new UN11.ManySpriteDrawData(smoke, UN11.SpriteDrawFlags.colourDefault);
+			for (int i = 0; i < 1000; i++)
 			{
 				UN11.SpriteData temp = new UN11.SpriteData(smoke);
 				temp[smoke.layout.Position0] = new Vector4(rnd.NextFloat(-n, n), 10, rnd.NextFloat(-n, n), 1f);
@@ -8636,6 +8664,10 @@ namespace UN11
 				msddat.sDats.Add(temp);
 			}
 			vddat.geometryDrawDatas.Add(msddat);
+			
+			UN11.ManySpriteDrawData msddat2 = new UN11.ManySpriteDrawData(smoke, UN11.SpriteDrawFlags.depthDefault);
+			msddat2.sDats = msddat.sDats;
+			vddat.geometryDrawDatas.Add(msddat2);
 			// TODO: sort out sprite light
 			//
 			
