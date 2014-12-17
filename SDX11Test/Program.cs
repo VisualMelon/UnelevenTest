@@ -1604,7 +1604,7 @@ namespace UN11
 		}
 		
 		// models/segments work this out
-		[StructLayout(LayoutKind.Explicit, Size=SpriteDataCData.maxSize * sizeof(float))]
+		[StructLayout(LayoutKind.Explicit, Size=SpriteDataCData.maxSize * sizeof(float) * 4)]
 		public struct SpriteDataCData
 		{
 			public const int defaultSlot = 2;
@@ -3344,7 +3344,7 @@ namespace UN11
 				
 				ddat.targetRenderViewPair.apply(context, false, false);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
-				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
+				ddat.pddat.uneleven.rasterizerStates.noBackcull.apply(context);
 				
 				ddat.eyeBuffer.applyVStage(context);
 				ddat.eyeBuffer.update(context);
@@ -3418,17 +3418,17 @@ namespace UN11
 			
 			public void roundupTheUsualSuspects(int maxSize)
 			{
-				generators["quad4"] = (device, context) =>
+				generators["quad1"] = (device, context) =>
 				{
-					SpritePrimatives sp = new UN11.SpritePrimatives("quad4");
-					sp.createQuad(device, context, 8, maxSize / 8);
+					SpritePrimatives sp = new UN11.SpritePrimatives("quad1");
+					sp.createQuad(device, context, 1, maxSize / 1);
 					return sp;
 				};
 				
-				generators["quad8"] = (device, context) =>
+				generators["quad2"] = (device, context) =>
 				{
-					SpritePrimatives sp = new UN11.SpritePrimatives("quad8");
-					sp.createQuad(device, context, 8, maxSize / 8);
+					SpritePrimatives sp = new UN11.SpritePrimatives("quad2");
+					sp.createQuad(device, context, 2, maxSize / 2);
 					return sp;
 				};
 			}
@@ -3485,9 +3485,9 @@ namespace UN11
 			
 			public void createQuad(Device device, DeviceContext context, int spriteSizeN, int batchCopiesN)
 			{
-				spriteSize = spriteSizeN; // e.g. 8 (floats): float4 loc, float4 dat
+				spriteSize = spriteSizeN; // e.g. 2 (float4s): float4 loc, float4 dat
 				batchCopies = batchCopiesN;
-				highTti = 0; // won't always be so
+				highTti = spriteSize - 1;
 				
 				List<VertexPCT> vPCTs = new List<UN11.VertexPCT>();
 				List<short> indicies = new List<short>();
@@ -3644,9 +3644,9 @@ namespace UN11
 			/// <summary>
 			/// This is one heck of a dodgy function, make sure you understand sdi before you use it
 			/// </summary>
-			/// <param name="sdi">Float offset</param>
+			/// <param name="sdi">Float4 offset</param>
 			/// <param name="sDat">Float array to copy in</param>
-			/// <param name="sdLen">Number of floats to copy, I'll trust you not to make this bigger than the length of the array</param>
+			/// <param name="sdLen">Number of float4s to copy, I'll trust you not to make this bigger than the length of the array</param>
 			public unsafe void setValue(int sdi, SpriteData sDat, int sdLen)
 			{
 				if (sdi < 0 || sdi + sdLen > SpriteDataCData.maxSize)
@@ -3660,7 +3660,7 @@ namespace UN11
 					{
 						byte* sbPtr = (byte*)sdPtr;
 						
-						Utils.copy(sbPtr, dbPtr + (sdi * sizeof(float)), sdLen * sizeof(float));
+						Utils.copy(sbPtr, dbPtr + (sdi * sizeof(float) * 4), sdLen * sizeof(float) * 4);
 					}
 				}
 			}
@@ -3675,7 +3675,7 @@ namespace UN11
 				if (sdiOffet < 0 || sdiOffet + spriteCount * sdLen > SpriteDataCData.maxSize)
 					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
 				
-				int stride = sdLen * sizeof(float);
+				int stride = sdLen * sizeof(float) * 4;
 				
 				fixed (SpriteDataCData* sdcdPtr = &spriteDataBuffer.data)
 				{
@@ -3687,7 +3687,7 @@ namespace UN11
 						{
 							byte* sbPtr = (byte*)sdPtr;
 							
-							Utils.copy(sbPtr, dbPtr + (sdiOffet * sizeof(float)) + (i * stride), stride);
+							Utils.copy(sbPtr, dbPtr + (sdiOffet * sizeof(float) * 4) + (i * stride), stride);
 						}
 					}
 				}
@@ -3776,13 +3776,13 @@ namespace UN11
 			public SpriteData(int sdLenN)
 			{
 				sdLen = sdLenN;
-				dat = new float[sdLen];
+				dat = new float[sdLen * 4];
 			}
 			
 			public SpriteData(Sprite sprt)
 			{
 				sdLen = sprt.sdLen;
-				dat = new float[sdLen];
+				dat = new float[sdLen * 4];
 			}
 			
 			public SpriteData(params float[] fdat)
@@ -3796,14 +3796,12 @@ namespace UN11
 				dat[idx] = f;
 			}
 			
-			public void setArr(int idx, float[] arr)
-			{
-				Utils.copy(0, arr, idx, dat, arr.Length);
-			}
-			
 			public void setVec4(int idx, Vector4 v)
 			{
-				setArr(idx, v.ToArray());
+				dat[idx+0] = v.X;
+				dat[idx+1] = v.Y;
+				dat[idx+2] = v.Z;
+				dat[idx+3] = v.W;
 			}
 			
 			public float getFloat(int idx)
@@ -3811,16 +3809,9 @@ namespace UN11
 				return dat[idx];
 			}
 			
-			public float[] getArr(int idx, int len)
-			{
-				float[] arr = new float[len];
-				Utils.copy(idx, dat, 0, arr, len);
-				return arr;
-			}
-			
 			public Vector4 getVec4(int idx)
 			{
-				return new Vector4(dat[idx], dat[idx+1], dat[idx+2], dat[idx+3]);
+				return new Vector4(dat[idx+0], dat[idx+1], dat[idx+2], dat[idx+3]);
 			}
 			
 			public float this[FloatOffset fo]
@@ -8634,13 +8625,13 @@ namespace UN11
 			//
 			
 			// smoke!!
-			var smoke = uneleven.sprites["smoke"];
+			UN11.Sprite smoke = uneleven.sprites["smoke"];
 			msddat = new UN11.ManySpriteDrawData(smoke);
 			for (int i = 0; i < 100; i++)
 			{
 				UN11.SpriteData temp = new UN11.SpriteData(smoke);
 				temp[smoke.layout.Position0] = new Vector4(rnd.NextFloat(-n, n), 10, rnd.NextFloat(-n, n), 1f);
-				temp[smoke.layout.Other0] = new Vector4(1.0f, 0.001f, 5f, 0.1f);
+				temp[smoke.layout.Other0] = new Vector4(0.5f, 0.001f, 5f, 0.1f);
 				
 				msddat.sDats.Add(temp);
 			}
