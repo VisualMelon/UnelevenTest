@@ -1602,11 +1602,11 @@ namespace UN11
 		}
 		
 		// models/segments work this out
-		[StructLayout(LayoutKind.Explicit, Size=SpriteCData.maxSprite4s * sizeof(float) * 4)]
-		public struct SpriteCData
+		[StructLayout(LayoutKind.Explicit, Size=SpriteDataCData.maxSize * sizeof(float))]
+		public struct SpriteDataCData
 		{
 			public const int defaultSlot = 2;
-			public const int maxSprite4s = 120;
+			public const int maxSize = 120;
 			
 			[FieldOffsetAttribute(0)]
 			public Vector4 vec0;
@@ -1632,6 +1632,14 @@ namespace UN11
 		
 		[StructLayout(LayoutKind.Sequential)]
 		public struct SectionCData
+		{
+			public const int defaultSlot = 4;
+			
+			public float4 colMod;
+		}
+		
+		[StructLayout(LayoutKind.Sequential)]
+		public struct SpriteCData
 		{
 			public const int defaultSlot = 4;
 			
@@ -3018,7 +3026,7 @@ namespace UN11
 		public class CompoundTransArrBuffer : TransArrBuffer
 		{
 			public int maxCount {get; private set;} // TODO: remove this (transArrs are always the right size)
-			public int matCount {get; private set;}
+			public int matCount {get; private set;} // FIXME: what is this for?
 			private int curOffset;
 			public int count {get; private set;}
 			
@@ -3183,116 +3191,555 @@ namespace UN11
 			}
 		}
 		
-		public class SpriteArrBuffer
+		public class SpritePrettyness
 		{
-			ConstBuffer<SpriteCData> spriteBuffer;
+			public Prettyness prettyness;
+			public Texness texness;
 			
-			public SpriteArrBuffer(Device device)
-			{
-				spriteBuffer = new ConstBuffer<SpriteCData>(device, SpriteCData.maxSprite4s);
-			}
+			public ConstBuffer<SpriteCData> spriteBuffer;
+			public MatrixBuffer matBuffer;
 			
-			public unsafe void setValues(int sdiOffset, SpriteArr spriteArr)
+			public SpritePrettyness(Device device)
 			{
-				setLiteralValues(sdiOffset, spriteArr.getArr());
-			}
-			
-			/// <summary>
-			/// Does not perform transpose
-			/// </summary>
-			public unsafe void setLiteralValue(int sdi, ref Vector4 mat)
-			{
-				if (sdi < 0 || sdi > SpriteCData.maxSprite4s)
-					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
+				texness = new Texness();
+				prettyness = new Prettyness();
 				
-				fixed (SpriteCData* scdPtr = &spriteBuffer.data)
+				createBuffers(device);
+			}
+			
+			public SpritePrettyness(Device device, SectionPrettyness gin)
+			{
+				texness = new Texness(gin.texness);
+				prettyness = new Prettyness(gin.prettyness);
+				
+				createBuffers(device);
+			}
+			
+			private void createBuffers(Device device)
+			{
+				spriteBuffer = new ConstBuffer<SpriteCData>(device, SpriteCData.defaultSlot);
+				matBuffer = new MatrixBuffer(device);
+			}
+			
+			public void update()
+			{
+				spriteBuffer.data.colMod = prettyness.colMod;
+				matBuffer.setValues(0, prettyness.matrices);
+			}
+			
+			public void apply(DeviceContext context)
+			{
+				// section buffer
+				spriteBuffer.update(context);
+				
+				spriteBuffer.applyVStage(context);
+				spriteBuffer.applyPStage(context);
+				
+				// matric buffer
+				matBuffer.update(context);
+				
+				matBuffer.apply(context);
+				
+				// other
+				texness.applyTextures(context);
+			}
+		}
+		
+		// TODO: this might need re-writing for performance (see SpriteArr)
+		public class ManySpriteDrawData : GeometryDrawData
+		{
+			public Sprite sprt;
+			public bool useOwnSections = true; // if you set this to false, you probably want to be batching
+			public bool batched = true;
+			public List<SpriteData> sDats = new List<UN11.SpriteData>();
+			
+			public ManySpriteDrawData(Sprite sprtN)
+			{
+				sprt = sprtN;
+			}
+			
+			public void drawGeometry(DeviceContext context, UN11.DrawData ddat)
+			{
+				if (batched)
+					sprt.drawBatched(context, this, ddat);
+				//else
+				//	sprt.drawMany(context, this, ddat);
+			}
+		}
+		
+		public class Sprite : Named
+		{
+			public string name {get; private set;}
+			
+			public SpritePrettyness[] prettynessess;
+			
+			public SpritePrimatives primatives;
+			
+			public CompoundSpriteDataArrBuffer compoundSpriteDataArrBuffer;
+			
+			public Sprite(Device device, string nameN) : base()
+			{
+				prettynessess = new UN11.SpritePrettyness[(int)SceneType.Length];
+				for (int i = 0; i < prettynessess.Length; i++)
+					prettynessess[i] = new SpritePrettyness(device);
+			}
+			
+			public void update()
+			{
+				foreach (SpritePrettyness sp in prettynessess)
+					sp.update();
+			}
+			
+			public void drawBatched(DeviceContext context, ManySpriteDrawData msddat, DrawData ddat)
+			{
+				SpritePrettyness prettyness = prettynessess[(int)ddat.sceneType];
+				
+				ddat.targetRenderViewPair.apply(context, false, false);
+				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
+				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
+				
+				ddat.eyeBuffer.applyVStage(context);
+				ddat.eyeBuffer.update(context);
+				
+				if (ddat.sceneType == SceneType.Light)
 				{
-					Vector4* vecPtr = (Vector4*)scdPtr;
-					vecPtr[sdi] = mat;
+					// this should probably actually do the checks
+					ddat.lightMapBuffer.applyVStage(context); // ??
+					ddat.lightMapBuffer.applyPStage(context); // ??
+					ddat.lightMapBuffer.update(context);
 				}
-			}
-			
-			/// <summary>
-			/// Does not perform transpose
-			/// </summary>
-			public unsafe void setLiteralValues(int sdiOffet, Vector4[] vecs)
-			{
-				if (sdiOffet < 0 || sdiOffet + vecs.Length > SpriteCData.maxSprite4s)
-					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
 				
-				fixed (SpriteCData* scdPtr = &spriteBuffer.data)
+				prettyness.apply(context);
+				
+				ddat.pddat.uneleven.blendStates.none.apply(context);
+				
+				// plain pass
+				if (ddat.sceneType == SceneType.Light)
+					prettyness.prettyness.lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
+				else if (prettyness.prettyness.tech != null) // TODO: make this explicit
+					prettyness.prettyness.tech.passes[0].apply(context);
+				else
+					goto noPlainPass;
+				
+				foreach (SpriteData sd in msddat.sDats)
 				{
-					Vector4* vecPtr = (Vector4*)scdPtr;
-					for (int i = 0; i < vecs.Length; i++)
+					compoundSpriteDataArrBuffer.appendNuts(sd, context, primatives.drawPrims);
+				}
+				compoundSpriteDataArrBuffer.zeroNuts(context, primatives.drawPrims);
+				
+			noPlainPass:
+				
+				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litTech != null)
+				{
+					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
+					
+					foreach (Light l in ddat.lights)
 					{
-						vecPtr[sdiOffet + i] = vecs[i];
+						if (!l.lightEnabled)
+							continue;
+						
+						l.lightBuffer.update(context);
+						l.lightBuffer.applyVStage(context);
+						l.lightBuffer.applyPStage(context);
+						
+						prettyness.prettyness.litTech.passes[(int)l.lightType].apply(context);
+						
+						foreach (SpriteData sd in msddat.sDats)
+						{
+							// culling or something?
+							
+							compoundSpriteDataArrBuffer.appendNuts(sd, context, primatives.drawPrims);
+						}
+						compoundSpriteDataArrBuffer.zeroNuts(context, primatives.drawPrims);
 					}
 				}
 			}
 		}
 		
-		// TODO: implement from CompoundTransArrBuffer
-		public class CompoundSpriteArrBuffer : SpriteArrBuffer
+		// UNCRZ_SpriteBuffer in Barembs
+		public class SpritePrimatives
 		{
+			public Buffer vbuff;
+			public VertexBufferBinding vbuffBinding;
+			public Buffer ibuff;
+			public int stride = VertexPCT.size;
+			public int numVertices;
+			public int numIndices;
+			
+			public int spriteSize;
+			public int batchCopies;
+			public int highTti;
+			
+			public VertexPCT[] verticesPCT;
+			public short[] indices;
+			
+			public SpritePrimatives()
+			{
+				// joy
+			}
+			
+			// TODO: munge VI/Primative stuff for Models and Sprites into one class. worst case scenario, we have 2 sepatate FillIBuff methods, it will be glorius
+			public void applyVIBuffers(DeviceContext context)
+			{
+				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
+				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
+			}
+			
+			public void drawPrims(DeviceContext context, int batchCount)
+			{
+				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList; // might want to find a better way of doing this, but we used to pass this to DrawIndexedPrimative, so it can't be too slow
+				context.DrawIndexed(numIndices * batchCount, 0, 0);
+			}
+			
+			public void createQuad(Device device, DeviceContext context, int spriteSizeN, int batchCopiesN)
+			{
+				spriteSize = spriteSizeN; // e.g. 8 (floats): float4 loc, float4 dat
+				batchCopies = batchCopiesN;
+				highTti = 0; // won't always be so
+				
+				List<VertexPCT> vPCTs = new List<UN11.VertexPCT>();
+				List<short> indicies = new List<short>();
+				
+				vPCTs.Add(new VertexPCT(new VertexPC(-1, -1, 1, 1, 1, 1, 0), 0, 0));
+				vPCTs.Add(new VertexPCT(new VertexPC(1, -1, 1, 1, 1, 1, 0), 1, 0));
+				vPCTs.Add(new VertexPCT(new VertexPC(1, 1, 1, 1, 1, 1, 0), 1, 1));
+				vPCTs.Add(new VertexPCT(new VertexPC(-1, 1, 1, 1, 1, 1, 0), 0, 1));
+		
+				indicies.Add((short)0);
+				indicies.Add((short)1);
+				indicies.Add((short)2);
+				
+				indicies.Add((short)0);
+				indicies.Add((short)2);
+				indicies.Add((short)3);
+		
+				numVertices = vPCTs.Count;
+				createVBuff(device, context, vPCTs.ToArray());
+				numIndices = indicies.Count;
+				createIBuff(device, context, indicies.ToArray());
+			}
+			
+			public unsafe void fillIBuff(DeviceContext context)
+			{
+				DataStream dstream;
+				context.MapSubresource(ibuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
+				
+				byte* buffPtr = (byte*)dstream.DataPointer;
+				fixed (short* indicesPtrShort = indices)
+				{
+					byte* indicesPtr = (byte*)indicesPtrShort;
+					
+					if (batchCopies == 1)
+					{
+						Utils.copy(indicesPtr, buffPtr, numIndices * sizeof(short));
+					}
+					else
+					{
+						int idxOffset = 0;
+						for (int i = 0; i < batchCopies; i++)
+						{
+							byte* copyPtr = buffPtr + i * numIndices * sizeof (short);
+							Utils.copy(indicesPtr, copyPtr, numIndices * sizeof (short));
+							
+							if (i > 0)
+							{
+								idxOffset += numVertices;
+								
+								short* idxs = (short*)copyPtr;
+								for (int j = 0; j < numIndices; j++)
+								{
+									idxs[j] += (short)idxOffset;
+								}
+							}
+						}
+					}
+				}
+				
+				dstream.Dispose();
+				context.UnmapSubresource(ibuff, 0);
+			}
+			
+			public void createIBuff(Device device, DeviceContext context, short[] ids)
+			{
+				ibuff = new Buffer(device, new BufferDescription(numIndices * sizeof (short) * batchCopies, ResourceUsage.Dynamic, BindFlags.IndexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, sizeof(short)));
+				
+				indices = new short[ids.Length];
+				Utils.copy<short>(0, ids, 0, indices, ids.Length);
+				
+				fillIBuff(context);
+			}
+			
+			private unsafe void fillVBuff(DeviceContext context)
+			{
+				DataStream dstream;
+				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
+				
+				byte* buffPtr = (byte*)dstream.DataPointer;
+				fixed (VertexPCT* vertexPtrVPCT = verticesPCT)
+				{
+					byte* verticesPtr = (byte*)vertexPtrVPCT;
+					
+					if (batchCopies == 1)
+					{
+						Utils.copy(verticesPtr, buffPtr, numVertices * stride);
+					}
+					else
+					{
+						int ttiOffset = 0;
+
+						// madness ensues
+						for (int i = 0; i < batchCopies; i++)
+						{
+							byte* copyPtr = (byte*)buffPtr + i * numVertices * stride;
+							Utils.copy(verticesPtr, copyPtr, numVertices * stride);
+							
+							// sort out ttiOffset for batch copies
+							if (i > 0)
+							{
+								ttiOffset += highTti + 1; // 1 makes it the count
+
+								VertexPCT* vPCTs = (VertexPCT*)copyPtr;
+								for (int j = 0; j < numVertices; j++)
+								{
+									vPCTs[j].tti += ttiOffset;
+								}
+							}
+						}
+					}
+				}
+				
+				dstream.Dispose();
+				context.UnmapSubresource(vbuff, 0);
+			}
+			
+			public void createVBuff(Device device, DeviceContext context, VertexPCT[] vPCTs /*add formats here as appropriate, hope there arn't too many*/)
+			{
+				vbuff = new Buffer(device, new BufferDescription(numVertices * stride * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
+				
+				vbuffBinding = new VertexBufferBinding(vbuff, stride, 0);
+				
+				verticesPCT = new VertexPCT[vPCTs.Length];
+				Utils.copy<VertexPCT>(0, vPCTs, 0, verticesPCT, vPCTs.Length);
+				
+				fillVBuff(context);
+			}
+		}
+		
+		public class SpriteDataArrBuffer
+		{
+			ConstBuffer<SpriteDataCData> spriteDataBuffer;
+			
+			public SpriteDataArrBuffer(Device device)
+			{
+				spriteDataBuffer = new ConstBuffer<SpriteDataCData>(device, SpriteDataCData.maxSize);
+			}
+			
+			public unsafe void update(DeviceContext context)
+			{
+				spriteDataBuffer.update(context);
+			}
+			
+			public void apply(DeviceContext context)
+			{
+				spriteDataBuffer.applyVStage(context);
+			}
+			
+			public unsafe void setValues(int sdiOffset, SpriteArr spriteArr, int sdLen)
+			{
+				setValues(sdiOffset, spriteArr.getArr(), sdLen);
+			}
+			
+			/// <summary>
+			/// This is one heck of a dodgy function, make sure you understand sdi before you use it
+			/// </summary>
+			/// <param name="sdi">Float offset</param>
+			/// <param name="sDat">Float array to copy in</param>
+			/// <param name="sdLen">Number of floats to copy, I'll trust you not to make this bigger than the length of the array</param>
+			public unsafe void setValue(int sdi, SpriteData sDat, int sdLen)
+			{
+				if (sdi < 0 || sdi + sdLen > SpriteDataCData.maxSize)
+					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
+				
+				fixed (SpriteDataCData* sdcdPtr = &spriteDataBuffer.data)
+				{
+					byte* dbPtr = (byte*)sdcdPtr;
+					
+					fixed (float* sdPtr = sDat.dat)
+					{
+						byte* sbPtr = (byte*)sdPtr;
+						
+						Utils.copy(sbPtr, dbPtr + (sdi * sizeof(float)), sdLen * sizeof(float));
+					}
+				}
+			}
+			
+			public unsafe void setValues(int sdiOffet, SpriteData[] sDats, int sdLen)
+			{
+				setValues(sdiOffet, sDats, sdLen, sDats.Length);
+			}
+			
+			public unsafe void setValues(int sdiOffet, SpriteData[] sDats, int sdLen, int spriteCount)
+			{
+				if (sdiOffet < 0 || sdiOffet + spriteCount * sdLen > SpriteDataCData.maxSize)
+					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
+				
+				int stride = sdLen * sizeof(float);
+				
+				fixed (SpriteDataCData* sdcdPtr = &spriteDataBuffer.data)
+				{
+					byte* dbPtr = (byte*)sdcdPtr;
+					
+					for (int i = 0; i < spriteCount; i++)
+					{
+						fixed (float* sdPtr = sDats[i].dat)
+						{
+							byte* sbPtr = (byte*)sdPtr;
+							
+							Utils.copy(sbPtr, dbPtr + (sdiOffet * sizeof(float)) + (i * stride), stride);
+						}
+					}
+				}
+			}
+		}
+		
+		public class CompoundSpriteDataArrBuffer : SpriteDataArrBuffer
+		{
+			public int maxCount {get; private set;}
+			public int sdLen {get; private set;}
 			private int curOffset;
 			public int count {get; private set;}
 			
-			public CompoundSpriteArrBuffer(Device device) : base(device)
+			public delegate void DrawDel(DeviceContext context, int count);
+			
+			public CompoundSpriteDataArrBuffer(Device device, int maxCountN, int sdLenN) : base(device)
 			{
+				maxCount = maxCountN;
+				sdLen = sdLenN;
 				curOffset = 0;
 				count = 0;
 			}
 			
-			public void append(SpriteArr spriteArr)
+			public void appendNuts(SpriteData sDat, DeviceContext context, DrawDel drawCall)
 			{
-				// implement
+				append(sDat);
+				
+				if (full)
+				{
+					zeroNuts(context, drawCall);
+				}
+			}
+			
+			public void zeroNuts(DeviceContext context, DrawDel drawCall)
+			{
+				if (!empty)
+				{
+					update(context);
+					apply(context);
+					
+					drawCall(context, count);
+					
+					zero();
+				}
+			}
+			
+			public void append(SpriteData sDat)
+			{
+				if (full)
+					throw new BloominEckException("This CompoundSpriteArrBuffer is full, laddy!");
+				
+				setValue(curOffset, sDat, sdLen);
+				count++;
+				curOffset += sdLen;
+			}
+			
+			public void zero()
+			{
+				count = 0;
+				curOffset = 0;
+			}
+			
+			public bool full
+			{
+				get
+				{
+					return count == maxCount;
+				}
+			}
+			
+			public bool empty
+			{
+				get
+				{
+					return count == 0;
+				}
 			}
 		}
 		
+		// TODO: make this leech off a re-written SpriteArr or something
+		public class SpriteData
+		{
+			public float[] dat;
+			public int sdLen {get; private set;}
+			
+			public SpriteData(int sdLenN)
+			{
+				sdLen = sdLenN;
+				dat = new float[sdLen];
+			}
+			
+			public void setArr(int idx, float[] arr)
+			{
+				Utils.copy(0, arr, idx, dat, arr.Length);
+			}
+			
+			public void setVec4(int idx, Vector4 v)
+			{
+				setArr(idx, v.ToArray());
+			}
+		}
+		
+		// HACK: FIXME: this is currently an ugly sort of mockery of TransArr (which doesn't make a shred of sense, they have very differnt jobs (what is SpriteArr's job?)), which itself is ugly, and this needs to be rethought completly (i.e. sit everything on a single float[] for performance)
 		public class SpriteArr
 		{
-			private Vector4[] vecs;
+			private SpriteData[] spriteDatas;
 			public int len {get; private set;}
+			public int sdLen {get; private set;}
 			
-			public Vector4[] getArr()
+			public SpriteData[] getArr()
 			{
-				return vecs;
+				return spriteDatas;
 			}
 			
-			public Vector4[] getClonedArr()
+			public SpriteData[] getClonedArr()
 			{
-				Vector4[] varr = new Vector4[len];
+				SpriteData[] sdarr = new SpriteData[len];
 				for (int i = 0; i < len; i++)
 				{
-					varr[i] = vecs[i];
+					sdarr[i] = spriteDatas[i];
 				}
-				return varr;
+				return sdarr;
 			}
 			
-			public void setValue(int sdi, ref Vector4 vec)
+			public void setValue(int sdi, ref SpriteData sd)
 			{
-				vecs[sdi] = vec;
+				spriteDatas[sdi] = sd;
 			}
 			
-			public void getValue(int sdi, out Vector4 vec)
+			public void getValue(int sdi, out SpriteData sd)
 			{
-				vec = vecs[sdi];
+				sd = spriteDatas[sdi];
 			}
 			
-			public Vector4 getValue(int sdi)
+			public SpriteData getValue(int sdi)
 			{
-				return vecs[sdi];
+				return spriteDatas[sdi];
 			}
 			
-			public int getLen()
+			public void create(int sdLenN, int lenN)
 			{
-				return len;
-			}
-			
-			public void create(int lenN)
-			{
+				sdLen = sdLenN;
 				len = lenN;
-				vecs = new Vector4[len];
+				spriteDatas = new SpriteData[len];
 			}
 		}
 		
@@ -4272,8 +4719,7 @@ namespace UN11
 				
 			notOcced:
 				
-				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
-				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
+				applyVIBuffers(context);
 				
 				transArrBuffer.update(context);
 				transArrBuffer.apply(context);
@@ -4282,6 +4728,12 @@ namespace UN11
 				{
 					sec.draw(context, ddat, this);
 				}
+			}
+			
+			public void applyVIBuffers(DeviceContext context)
+			{
+				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
+				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
 			}
 			
 			public void drawBatched(DeviceContext context, ManyModelDrawData mmddat, DrawData ddat)
@@ -4304,8 +4756,7 @@ namespace UN11
 				if (cullall)
 					return;
 				
-				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
-				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
+				applyVIBuffers(context);
 				
 				// set transArr in Section.drawMany
 				for (int i = 0; i < sections.Count; i++)
@@ -4334,8 +4785,7 @@ namespace UN11
 				if (cullall)
 					return;
 				
-				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
-				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
+				applyVIBuffers(context);
 				
 				// set transArr in Section.drawMany
 				for (int i = 0; i < sections.Count; i++)
@@ -7780,7 +8230,6 @@ namespace UN11
 			
 			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(cube));
 			vddat.geometryDrawDatas.Add(new UN11.LinesDrawData(lines));
-			tddat.geometryDrawDatas.Add(new UN11.LinesDrawData(lines));
 			
 			vddat.lights.Add(sun);
 			vddat.lights.Add(torch);
