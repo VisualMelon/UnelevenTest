@@ -59,6 +59,8 @@ struct PS_Output
 
 cbuffer eyeBuffer : register(b0)
 {
+	matrix viewMat;
+	matrix projMat;
 	matrix viewProj;
 	matrix targetVPMat;
 	float4 eyePos;
@@ -88,9 +90,9 @@ cbuffer transBuffer : register(b2)
 	matrix transarr[30]; // need to be same as number of segs
 };
 
-cbuffer spriteBuffer : register(b2)
+cbuffer spriteDataBuffer : register(b2)
 {
-	float4 spriteLoc[120]; // sprite buffer size must be no more than (this len / size of sprite data)
+	float4 spriteData[120]; // sprite buffer size must be no more than (this len / size of sprite data)
 };
 
 cbuffer overBuffer : register(b3)
@@ -101,6 +103,12 @@ cbuffer overBuffer : register(b3)
 cbuffer sectionBuffer : register(b4)
 {
 	float4 colMod;
+};
+
+cbuffer spriteBuffer : register(b4)
+{
+	float4 spriteColMod; // this totally can't go wrong
+	float4 spriteDim;
 };
 
 // probably want this guy incorportated into the sectionBuffer some time
@@ -790,6 +798,57 @@ PS_Output PShade_Tex_Test(VS_Output_Tex inp)
 
 	// flat alpha
 	outp.col.w = 1;
+
+	return outp;
+}
+
+
+
+
+
+
+
+// sprites
+
+VS_Output_Tex VShade_Sprite_Smoke(VS_Input_Tex inp)
+{
+	VS_Output_Tex outp = (VS_Output_Tex)0;
+	float4 centre = (float4)0;
+	if (inp.tti >= 0)
+	{
+		centre = spriteData[inp.tti];
+	}
+	float4 oth = spriteData[inp.tti + 1];
+	inp.pos *= spriteDim;
+	outp.col = inp.col;
+	if (oth.x > oth.w)
+	{
+		float smod = (oth.x - oth.w) / (1 - oth.w);
+		inp.pos *= (1 + smod * oth.z);
+		outp.col.w *= (1 - smod);
+	}
+	centre = mul(centre, viewMat);
+	outp.pos = mul(centre + inp.pos, projMat);
+	outp.altPos = outp.pos;
+	outp.altPos.z = outp.altPos.z * outp.altPos.w * invFarDepth;
+	outp.txc = inp.txc;
+
+	return outp;
+}
+
+PS_Output PShade_Sprite(VS_Output_Tex inp)
+{ // no light coof
+	//float num = (inp.altPos.z / inp.altPos.w);
+	PS_Output outp = (PS_Output)0;
+	//outp.dep = num;
+	//num = 1.0 - num;
+	outp.col = inp.col * tex.Sample(linearBorderSampler, inp.txc);
+
+	outp.col = outp.col * spriteColMod;
+	float alphaPreserve = outp.col.w;
+
+	outp.col *= alphaPreserve;
+	outp.col.w = alphaPreserve;
 
 	return outp;
 }

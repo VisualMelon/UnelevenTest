@@ -1545,6 +1545,8 @@ namespace UN11
 		{
 			public const int defaultSlot = 0;
 			
+			public matrix viewMat;
+			public matrix projMat;
 			public matrix viewProj;
 			public matrix targetVPMat;
 			public float4 eyePos;
@@ -1644,6 +1646,7 @@ namespace UN11
 			public const int defaultSlot = 4;
 			
 			public float4 colMod;
+			public float4 spriteDim;
 		}
 		
 		public interface IConstBuffering
@@ -1770,6 +1773,8 @@ namespace UN11
 			private void updateEyeCData()
 			{
 				Matrix idMat = Matrix.Identity;
+				matrix.Transpose(ref idMat, out eyeBuffer.data.viewMat);
+				matrix.Transpose(ref idMat, out eyeBuffer.data.projMat);
 				matrix.Transpose(ref idMat, out eyeBuffer.data.viewProj);
 				eyeBuffer.data.farDepth = 0.0f;
 				eyeBuffer.data.invFarDepth = 1.0f;
@@ -3221,9 +3226,10 @@ namespace UN11
 				matBuffer = new MatrixBuffer(device);
 			}
 			
-			public void update()
+			public void update(Vector3 dim)
 			{
 				spriteBuffer.data.colMod = prettyness.colMod;
+				spriteBuffer.data.spriteDim = new Vector4(dim, 0f);
 				matBuffer.setValues(0, prettyness.matrices);
 			}
 			
@@ -3267,18 +3273,52 @@ namespace UN11
 			}
 		}
 		
+		public enum FloatOffset : int
+		{
+			invalid = -1
+		}
+		
+		public enum Vec4Offset : int
+		{
+			invalid = -1
+		}
+		
+		public class SpriteDataLayout
+		{
+			public Vec4Offset Position0 = Vec4Offset.invalid;
+			public Vec4Offset Other0 = Vec4Offset.invalid;
+		}
+		
+		public class SpriteCollection : NamedCollection<Sprite>
+		{
+		}
+		
 		public class Sprite : Named
 		{
 			public string name {get; private set;}
 			
+			public SpriteDataLayout layout;
+			
 			public SpritePrettyness[] prettynessess;
+			public Vector3 dim;
 			
 			public SpritePrimatives primatives;
-			
 			public CompoundSpriteDataArrBuffer compoundSpriteDataArrBuffer;
+			
+			public int sdLen
+			{
+				get
+				{
+					return primatives.spriteSize;
+				}
+			}
 			
 			public Sprite(Device device, string nameN) : base()
 			{
+				name = nameN;
+				
+				layout = new SpriteDataLayout();
+				
 				prettynessess = new UN11.SpritePrettyness[(int)SceneType.Length];
 				for (int i = 0; i < prettynessess.Length; i++)
 					prettynessess[i] = new SpritePrettyness(device);
@@ -3287,9 +3327,10 @@ namespace UN11
 			public void update()
 			{
 				foreach (SpritePrettyness sp in prettynessess)
-					sp.update();
+					sp.update(dim);
 			}
 			
+			// TODO: implement this proper (alpha modes, etc. etc.)
 			public void drawBatched(DeviceContext context, ManySpriteDrawData msddat, DrawData ddat)
 			{
 				SpritePrettyness prettyness = prettynessess[(int)ddat.sceneType];
@@ -3353,11 +3394,55 @@ namespace UN11
 						compoundSpriteDataArrBuffer.zeroNuts(context, primatives.drawPrims);
 					}
 				}
+			
 			}
 		}
 		
+		public delegate SpritePrimatives SpritePrimativesGenerator(Device device, DeviceContext context);
+		
+		public class SpritePrimativesHandler
+		{
+			private SpritePrimativesCollection primatives = new SpritePrimativesCollection();
+			public Dictionary<string, SpritePrimativesGenerator> generators = new Dictionary<string, SpritePrimativesGenerator>();
+			
+			public SpritePrimativesHandler()
+			{
+			}
+			
+			public void roundupTheUsualSuspects(int maxSize)
+			{
+				generators["quad4"] = (device, context) =>
+				{
+					SpritePrimatives sp = new UN11.SpritePrimatives("quad4");
+					sp.createQuad(device, context, 8, maxSize / 8);
+					return sp;
+				};
+				
+				generators["quad8"] = (device, context) =>
+				{
+					SpritePrimatives sp = new UN11.SpritePrimatives("quad8");
+					sp.createQuad(device, context, 8, maxSize / 8);
+					return sp;
+				};
+			}
+			
+			public SpritePrimatives grab(Device device, DeviceContext context, string name)
+			{
+				if (!primatives.ContainsKey(name))
+				{
+					primatives[name] = generators[name](device, context);
+				}
+				
+				return primatives[name];
+			}
+		}
+		
+		public class SpritePrimativesCollection : NamedCollection<SpritePrimatives>
+		{
+		}
+		
 		// UNCRZ_SpriteBuffer in Barembs
-		public class SpritePrimatives
+		public class SpritePrimatives : ANamed
 		{
 			public Buffer vbuff;
 			public VertexBufferBinding vbuffBinding;
@@ -3373,7 +3458,7 @@ namespace UN11
 			public VertexPCT[] verticesPCT;
 			public short[] indices;
 			
-			public SpritePrimatives()
+			public SpritePrimatives(string name) : base(name)
 			{
 				// joy
 			}
@@ -3687,6 +3772,23 @@ namespace UN11
 				dat = new float[sdLen];
 			}
 			
+			public SpriteData(Sprite sprt)
+			{
+				sdLen = sprt.sdLen;
+				dat = new float[sdLen];
+			}
+			
+			public SpriteData(params float[] fdat)
+			{
+				sdLen = fdat.Length;
+				dat = (float[])fdat.Clone();
+			}
+			
+			public void setFloat(int idx, float f)
+			{
+				dat[idx] = f;
+			}
+			
 			public void setArr(int idx, float[] arr)
 			{
 				Utils.copy(0, arr, idx, dat, arr.Length);
@@ -3695,6 +3797,47 @@ namespace UN11
 			public void setVec4(int idx, Vector4 v)
 			{
 				setArr(idx, v.ToArray());
+			}
+			
+			public float getFloat(int idx)
+			{
+				return dat[idx];
+			}
+			
+			public float[] getArr(int idx, int len)
+			{
+				float[] arr = new float[len];
+				Utils.copy(idx, dat, 0, arr, len);
+				return arr;
+			}
+			
+			public Vector4 getVec4(int idx)
+			{
+				return new Vector4(dat[idx], dat[idx+1], dat[idx+2], dat[idx+3]);
+			}
+			
+			public float this[FloatOffset fo]
+			{
+				get
+				{
+					return getFloat((int)fo);
+				}
+				set
+				{
+					setFloat((int)fo, value);
+				}
+			}
+			
+			public Vector4 this[Vec4Offset v4o]
+			{
+				get
+				{
+					return getVec4((int)v4o);
+				}
+				set
+				{
+					setVec4((int)v4o, value);
+				}
 			}
 		}
 		
@@ -6428,6 +6571,8 @@ namespace UN11
 			
 			private void updateEyeCData()
 			{
+				matrix.Transpose(ref viewMat, out eyeBuffer.data.viewMat);
+				matrix.Transpose(ref projMat, out eyeBuffer.data.projMat);
 				matrix.Transpose(ref viewProjVP.mat, out eyeBuffer.data.viewProj);
 				eyeBuffer.data.targetVPMat = vp.createVPMat();
 				
@@ -6645,6 +6790,8 @@ namespace UN11
 			
 			private void updateEyeCData()
 			{
+				matrix.Transpose(ref viewMat, out eyeBuffer.data.viewMat);
+				matrix.Transpose(ref projMat, out eyeBuffer.data.projMat);
 				matrix.Transpose(ref viewProjVP.mat, out eyeBuffer.data.viewProj);
 				eyeBuffer.data.targetVPMat = vp.createVPMat();
 
@@ -7075,6 +7222,7 @@ namespace UN11
 		public TechniqueCollection techniques = new TechniqueCollection();
 		public TextureCollection textures = new TextureCollection(); // TODO: make sure all textures are in this for disposal (and look for other texture things, and stencil buffers, etc.)
 		public ModelCollection models = new ModelCollection();
+		public SpriteCollection sprites = new SpriteCollection();
 		public AnimCollection anims = new AnimCollection();
 		
 		// stuff what is slightly hard coded
@@ -7082,6 +7230,7 @@ namespace UN11
 		public DepthStencilStates depthStencilStates;
 		public RasterizerStates rasterizerStates;
 		public SamplerStates samplerStates;
+		public SpritePrimativesHandler spritePrimativesHandler;
 		
 		public MatrixCollection matrices = new MatrixCollection();
 		
@@ -7167,6 +7316,8 @@ namespace UN11
 			depthStencilStates = new DepthStencilStates(device);
 			rasterizerStates = new RasterizerStates(device);
 			samplerStates = new SamplerStates(device);
+			spritePrimativesHandler = new SpritePrimativesHandler();
+			spritePrimativesHandler.roundupTheUsualSuspects(100);
 			
 			timing = new Timing();
 			frameSpan = timing.newSpan("frameSpan");
@@ -7775,7 +7926,7 @@ namespace UN11
 						else if (data[0] == "pretty")
 						{
 							if (data.Length < 2)
-								throwFPE("Missing argument after \"vertex\" - expected a SceneType name");
+								throwFPE("Missing argument after \"pretty\" - expected a SceneType name");
 							
 							curSceneType = sceneTypes[data[1]];
 							
@@ -8074,6 +8225,194 @@ namespace UN11
 			return count;
 		}
 		
+		
+		
+		/// <summary>
+		/// Loads all the sprites from a given file into the given context
+		/// </summary>
+		/// <returns>The number of sprites loaded</returns>
+		public int loadSpritesFromFile(String fileName, DeviceContext context)
+		{
+			int count = 0;
+			
+			Dictionary<string, SceneType> sceneTypes = new Dictionary<string, SceneType>();
+			sceneTypes.Add("default", SceneType.Colour);
+			sceneTypes.Add("colour", SceneType.Colour);
+			sceneTypes.Add("light", SceneType.Light);
+			for (int i = 0; i < (int)SceneType.Length; i++)
+				sceneTypes.Add(i.ToString(), (SceneType)i);
+			
+			Sprite curSprite = null;
+			
+			SceneType curSceneType = SceneType.Length; // invalid value
+			Prettyness curPrettyness = null;
+			Texness curTexness = null;
+			
+			using (System.IO.StreamReader reader = new System.IO.StreamReader(fileName))
+			{
+				int lnum = 0;
+				string line = "";
+				
+				FileParsingExceptionThrower throwFPE = (msg) =>
+				{
+					throw new FileParsingException("loadTechniquesFromFile", fileName, lnum, line, msg);
+				};
+				
+				while (!reader.EndOfStream)
+				{
+					lnum++;
+					line = reader.ReadLine();
+					
+					int ci = line.IndexOf("//");
+					if (ci != -1)
+						line.Substring(0, ci);
+					line = line.Trim();
+					if (line == "")
+						continue;
+					
+					string[] data = line.Split(' ');
+					
+					if (data.Length > 0)
+					{
+						if (data[0] == "end")
+						{
+							if (data[1] == "sprite")
+							{
+								sprites.Add(curSprite);
+								
+								count++;
+							}
+							else if (data[1] == "pretty")
+							{
+							}
+						}
+						else if (data[0] == "sprite")
+						{
+							curSprite = new UN11.Sprite(device, data[1]);
+						}
+						else if (data[0] == "prims")
+						{
+							curSprite.primatives = spritePrimativesHandler.grab(device, context, data[1]);
+						}
+						else if (data[0] == "dim")
+						{
+							curSprite.dim = new Vector3(float.Parse(data[1]), float.Parse(data[2]), float.Parse(data[3]));
+						}
+						else if (data[0] == "layout")
+						{
+							switch (data[1])
+							{
+							case "pos0":
+								curSprite.layout.Position0 = (Vec4Offset)(int.Parse(data[2]));
+								break;
+							case "oth0":
+								curSprite.layout.Other0 = (Vec4Offset)(int.Parse(data[2]));
+								break;
+							}
+						}
+						else if (data[0] == "techniques_dx11")
+						{ // TODO: this might not be a good idea
+							loadTechniquesFromFile(line.Substring(16));
+						}
+						else if (data[0] == "mat")
+						{
+							int idx = int.Parse(data[1]);
+							curPrettyness.matrices[idx] = matrices[data[2]];
+						}
+						else if (data[0] == "pretty")
+						{
+							if (data.Length < 2)
+								throwFPE("Missing argument after \"pretty\" - expected a SceneType name");
+							
+							curSceneType = sceneTypes[data[1]];
+							
+							curTexness = curSprite.prettynessess[(int)curSceneType].texness;
+							curPrettyness = curSprite.prettynessess[(int)curSceneType].prettyness;
+						}
+						else if (data[0] == "texture")
+						{
+							curTexness.tex = createTexture(line.Substring(8));
+							curTexness.useTex = true;
+						}
+						else if (data[0] == "texture0")
+						{
+							curTexness.tex0 = createTexture(line.Substring(9));
+							curTexness.useTex0 = true;
+						}
+						else if (data[0] == "texture1")
+						{
+							curTexness.tex1 = createTexture(line.Substring(9));
+							curTexness.useTex1 = true;
+						}
+						else if (data[0] == "texture2")
+						{
+							curTexness.tex2 = createTexture(line.Substring(9));
+							curTexness.useTex2 = true;
+						}
+						else if (data[0] == "texture3")
+						{
+							curTexness.tex3 = createTexture(line.Substring(9));
+							curTexness.useTex3 = true;
+						}
+						else if (data[0] == "colmod")
+						{
+							curPrettyness.colMod = new Vector4(float.Parse(data[1]), float.Parse(data[2]), float.Parse(data[3]), float.Parse(data[4]));
+						}
+						else if (data[0] == "alpha")
+						{
+							if (data[1] == "none")
+								curPrettyness.alphaMode = AlphaMode.None;
+							else if (data[1] == "nice")
+								curPrettyness.alphaMode = AlphaMode.Nice;
+							else if (data[1] == "add")
+								curPrettyness.alphaMode = AlphaMode.Add;
+						}
+						else if (data[0] == "lighting")
+						{
+							if (data[1] == "none")
+							{
+								curPrettyness.lightingMode = LightingMode.None;
+							}
+							else if (data[1] == "full")
+							{
+								curPrettyness.lightingMode = LightingMode.Full;
+							}
+						}
+						else if (data[0] == "technique")
+						{
+							curPrettyness.tech = techniques[data[1]];
+						}
+						else if (data[0] == "technique_lit")
+						{
+							curPrettyness.litTech = techniques[data[1]];
+						}
+						else if (data[0] == "technique_light")
+						{
+							curPrettyness.lightTech = techniques[data[1]];
+						}
+						else if (data[0] == "technique_decal")
+						{
+							curPrettyness.decalTech = techniques[data[1]];
+						}
+						else if (data[0] == "technique_dyndecal")
+						{
+							curPrettyness.dynamicDecalTech = techniques[data[1]];
+						}
+						else if (data[0] == "technique_over")
+						{
+							curPrettyness.overTech = techniques[data[1]];
+						}
+						else if (data[0] == "scenetype")
+						{
+							sceneTypes.Add(data[1], (SceneType)int.Parse(data[1]));
+						}
+					}
+				}
+			}
+			
+			return count;
+		}
+		
 		public NamedTexture createTexture(string name)
 		{
 			// TODO: Work out why we can't load my TGAs (seems happy with PNGs)
@@ -8151,6 +8490,8 @@ namespace UN11
 		UN11.LightDrawData tddat;
 		UN11.FrameDrawData fddat;
 		UN11.FrameTickData ftdat;
+		UN11.ManyModelDrawData mmddat;
+		UN11.ManySpriteDrawData msddat;
 		
 		UN11.DependancyMapping<UN11.SlideDrawData> slideDependancies;
 		
@@ -8207,6 +8548,7 @@ namespace UN11
 			// load some stuff from some files
 			uneleven.loadTechniquesFromFile("textT.uncrz");
 			uneleven.loadModelsFromFile("text.uncrz", context);
+			uneleven.loadSpritesFromFile("textS.uncrz", context);
 			uneleven.loadAnimsFromFile("textA.uncrz", context);
 			
 			// face stuff
@@ -8256,7 +8598,7 @@ namespace UN11
 			// lots of trees?!
 			Random rnd = new Random();
 			int n = 100;
-			UN11.ManyModelDrawData mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
+			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
 			for (int i = 0; i < n * n * n / 1000; i++)
@@ -8281,6 +8623,21 @@ namespace UN11
 			}
 			vddat.geometryDrawDatas.Add(mmddat);
 			tddat.geometryDrawDatas.Add(mmddat);
+			//
+			
+			// smoke!!
+			var smoke = uneleven.sprites["smoke"];
+			msddat = new UN11.ManySpriteDrawData(smoke);
+			for (int i = 0; i < 100; i++)
+			{
+				UN11.SpriteData temp = new UN11.SpriteData(smoke);
+				temp[smoke.layout.Position0] = new Vector4(rnd.NextFloat(-n, n), 10, rnd.NextFloat(-n, n), 1f);
+				temp[smoke.layout.Other0] = new Vector4(1.0f, 0.001f, 5f, 0.1f);
+				
+				msddat.sDats.Add(temp);
+			}
+			vddat.geometryDrawDatas.Add(msddat);
+			// TODO: sort out sprite light
 			//
 			
 			slideDependancies = new UN11.DependancyMapping<UN11.SlideDrawData>();

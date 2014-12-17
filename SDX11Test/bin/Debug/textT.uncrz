@@ -66,6 +66,14 @@ pass vs_4_0 VShade_Face ps_4_0 PShade_Face_Border
 end tech
 
 
+// sprite techniques
+
+tech smokeSprite
+vertex PCT
+pass vs_4_0 VShade_Sprite_Smoke ps_4_0 PShade_Sprite
+end tech
+
+
 // test techniques
 
 tech simpleTex_test
