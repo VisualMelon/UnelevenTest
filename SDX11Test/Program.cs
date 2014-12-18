@@ -504,7 +504,7 @@ namespace UN11
 			Full
 		}
 		
-		public enum ViewMode
+		public enum EyeMode
 		{
 			Ortho,
 			Persp
@@ -2081,8 +2081,7 @@ namespace UN11
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
 				
-				ddat.eyeBuffer.applyVStage(context);
-				ddat.eyeBuffer.update(context);
+				ddat.eye.apply(context);
 				
 				if (ddat.sceneType == SceneType.Light)
 				{
@@ -2157,8 +2156,7 @@ namespace UN11
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
 				
-				ddat.eyeBuffer.applyVStage(context);
-				ddat.eyeBuffer.update(context);
+				ddat.eye.apply(context);
 				
 				if (ddat.sceneType == SceneType.Light)
 				{
@@ -2296,8 +2294,7 @@ namespace UN11
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
 				
-				ddat.eyeBuffer.applyVStage(context);
-				ddat.eyeBuffer.update(context);
+				ddat.eye.apply(context);
 				
 				prettyness.apply(context);
 				
@@ -3449,8 +3446,7 @@ namespace UN11
 					ddat.pddat.uneleven.depthStencilStates.zRead.apply(context);
 				ddat.pddat.uneleven.rasterizerStates.noBackcull.apply(context);
 				
-				ddat.eyeBuffer.applyVStage(context);
-				ddat.eyeBuffer.update(context);
+				ddat.eye.apply(context);
 				
 				if (ddat.sceneType == SceneType.Light)
 				{
@@ -4023,11 +4019,8 @@ namespace UN11
 			public TextureView sideTex;
 			public RenderViewPair sideRenderViewPair;
 			
-			public ConstBuffer<EyeCData> eyeBuffer;
+			public Eye eye;
 			public ConstBuffer<LightMapCData> lightMapBuffer;
-			
-			public AppliableViewport vp;
-			public Matrix viewProjVP; // mostly for good measure
 			
 			public Overness overness;
 			
@@ -4136,8 +4129,7 @@ namespace UN11
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList;
 				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
 				ddat.targetRenderViewPair.apply(context, false, false);
-				ddat.eyeBuffer.applyVStage(context);
-				ddat.eyeBuffer.update(context);
+				ddat.eye.apply(context);
 				ddat.pddat.uneleven.blendStates.none.apply(context);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
@@ -4280,8 +4272,7 @@ namespace UN11
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.LineList;
 				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
 				ddat.targetRenderViewPair.apply(context, false, false);
-				ddat.eyeBuffer.applyVStage(context);
-				ddat.eyeBuffer.update(context);
+				ddat.eye.apply(context);
 				ddat.pddat.uneleven.blendStates.none.apply(context);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
 				ddat.pddat.uneleven.rasterizerStates.noBackcull.apply(context);
@@ -4966,7 +4957,7 @@ namespace UN11
 			
 			public void draw(DeviceContext context, DrawData ddat)
 			{
-				if (noCull || modelBox.dothSurviveClipTransformed(ref ddat.viewProjVP))
+				if (noCull || modelBox.dothSurviveClipTransformed(ref ddat.eye.viewProjVP.mat))
 					goto notOcced;
 				return;
 				
@@ -4997,7 +4988,7 @@ namespace UN11
 				{
 					bool cullm = true; // true means it will be culled
 					
-					if (noCull || m.modelBox.dothSurviveClipTransformed(ref ddat.viewProjVP))
+					if (noCull || m.modelBox.dothSurviveClipTransformed(ref ddat.eye.viewProjVP.mat))
 					{
 						cullm = false;
 						cullall = false;
@@ -5026,7 +5017,7 @@ namespace UN11
 				{
 					bool cullm = true; // true means it will be culled
 					
-					if (noCull || m.modelBox.dothSurviveClipTransformed(ref ddat.viewProjVP))
+					if (noCull || m.modelBox.dothSurviveClipTransformed(ref ddat.eye.viewProjVP.mat))
 					{
 						cullm = false;
 						cullall = false;
@@ -6567,22 +6558,112 @@ namespace UN11
 			}
 		}
 		
-		public class View : ASlide, IFrameUpdateable
+		// move me somewhere sensible
+		public class Eye : ANamed
 		{
-			public int texWidth;
-			public int texHeight;
+			public Vector3 pos;
+			public Vector3 dir;
+			public Vector3 up;
 			
-			public ViewMode viewMode;
+			public EyeMode mode;
 			
 			public float projectionNear;
 			public float projectionFar;
 			public float dimX;
 			public float dimY;
 			
-			public float3 camPos;
-			public float3 camDir;
-			public float3 camUp;
+			// generated
+			public Matrix viewMat;
+			public Matrix projMat;
+			public NamedMatrix viewProjVP;
+			public NamedMatrix viewProjTex;
 			
+			private ConstBuffer<EyeCData> eyeBuffer;
+			
+			public Eye(Device device, string name, MatrixCollection matrices) : base(name)
+			{
+				// defaults
+				pos = Vector3.Zero;
+				dir = Vector3.UnitX;
+				up = Vector3.UnitY;
+				
+				matrices.Set(viewProjVP = new NamedMatrix(name + "_viewproj"));
+				matrices.Set(viewProjTex = new NamedMatrix(name + "_viewprojtex"));
+				
+				eyeBuffer = new ConstBuffer<EyeCData>(device, EyeCData.defaultSlot);
+			}
+			
+			public void apply(DeviceContext context)
+			{
+				eyeBuffer.applyVStage(context);
+				eyeBuffer.update(context);
+			}
+			
+			public void updateMatsOnly()
+			{
+				updateMats();
+			}
+			
+			public void update(AppliableViewport vp)
+			{
+				updateMats();
+				updateEyeCData(vp); // must be done after mats
+			}
+			
+			private void updateEyeCData(AppliableViewport vp)
+			{
+				matrix.Transpose(ref viewMat, out eyeBuffer.data.viewMat);
+				matrix.Transpose(ref projMat, out eyeBuffer.data.projMat);
+				matrix.Transpose(ref viewProjVP.mat, out eyeBuffer.data.viewProj);
+				eyeBuffer.data.targetVPMat = vp.createVPMat();
+
+				eyeBuffer.data.eyePos = new Vector4(pos, 1.0f);
+				eyeBuffer.data.eyeDir = new Vector4(dir, 1.0f);
+				eyeBuffer.data.targetTexData = vp.createTargetTexData();
+				
+				eyeBuffer.data.farDepth = projectionFar;
+				eyeBuffer.data.invFarDepth = 1.0f / projectionFar;
+			}
+			
+			private void updateMats()
+			{
+				Vector3 eyeVec = pos;
+				Vector3 targVec = Vector3.Add(eyeVec, dir);
+				Vector3 upVec = up;
+				
+				Matrix.LookAtLH(ref eyeVec, ref targVec, ref upVec, out viewMat);
+				if (mode == EyeMode.Persp)
+					matrix.PerspectiveFovLH(dimX, dimY, projectionNear, projectionFar, out projMat);
+				else if (mode == EyeMode.Ortho)
+					matrix.OrthoLH(dimX, dimY, projectionNear, projectionFar, out projMat);
+				matrix.Multiply(ref viewMat, ref projMat, out viewProjVP.mat);
+				viewProjTex.mat = viewProjVP.mat;
+				
+				texAlignViewProj(ref viewProjTex.mat);
+			}
+			
+			// nice methods
+			public void setProj(EyeMode modeN, float dimXN, float dimYN, float near, float far)
+			{
+				mode = modeN;
+				dimX = dimXN;
+				dimY = dimYN;
+				projectionNear = near;
+				projectionFar = far;
+			}
+
+			public void dirNormalAt(Vector3 targ)
+			{
+				dir = Vector3.Normalize(Vector3.Subtract(targ, pos));
+			}
+		}
+		
+		public class View : ASlide, IFrameUpdateable
+		{
+			public int texWidth;
+			public int texHeight;
+			
+			public Eye eye;
 			public AppliableViewport vp;
 			
 			public RenderTextureSet targetTextureSet {get; private set;}
@@ -6602,31 +6683,18 @@ namespace UN11
 			
 			// clipping
 			
-			public Matrix viewMat;
-			public Matrix projMat;
-			public NamedMatrix viewProjVP;
-			public NamedMatrix viewProjTex;
-			
-			private ConstBuffer<EyeCData> eyeBuffer;
 			private Overness overness;
 			
 			public View(Device device, string name, MatrixCollection matrices, TextureCollection textures) : base(name)
 			{
 				// loads of defaults
-				camPos = new Vector3(0f, 0f, 0f);
-				camDir = new Vector3(1f, 0f, 0f);
-				camUp = new Vector3(0f, 1f, 0f);
+				eye = new Eye(device, "view_" + name, matrices);
 
 				targetTextureSet = new UN11.RenderTextureSet("view_" + name, textures);
 				sideTextureSet = new UN11.RenderTextureSet("view_" + name + "_side", textures);
 				
 				clearColour = transBlack;
 				sideTextureSet.renderViewPair.clearColour = transBlack;
-				
-				matrices.Set(viewProjVP = new NamedMatrix("view_" + name + "_viewproj"));
-				matrices.Set(viewProjTex = new NamedMatrix("view_" + name + "_viewprojtex"));
-				
-				eyeBuffer = new ConstBuffer<EyeCData>(device, EyeCData.defaultSlot);
 			}
 			
 			public void drawView(DeviceContext context, ViewDrawData vddat, PreDrawData pddat)
@@ -6635,16 +6703,14 @@ namespace UN11
 				apply(context);
 				
 				DrawData ddat = new DrawData(pddat, vddat.sceneType);
-				ddat.eyeBuffer = eyeBuffer;
+				ddat.eye = eye;
 				ddat.lightMapBuffer = null; // no light maps here
 				ddat.targetTex = targetTextureSet.renderTex;
 				ddat.targetRenderViewPair = targetTextureSet.renderViewPair;
 				ddat.sideTex = sideTextureSet.renderTex;
 				ddat.sideRenderViewPair = sideTextureSet.renderViewPair;
 				ddat.overness = overness;
-				ddat.vp = vp;
 				ddat.lights = vddat.lights;
-				ddat.viewProjVP = viewProjVP.mat;
 				
 				ddat.targetRenderViewPair.apply(context, true, true);
 				
@@ -6662,23 +6728,14 @@ namespace UN11
 			
 			public Vector3 unprojectVP(Vector3 v)
 			{
-				return vp.unproject(v, ref viewProjVP.mat);
+				return vp.unproject(v, ref eye.viewProjVP.mat);
 			}
 			
 			public Vector3 unprojectVPScaled(Vector3 v, float w, float h)
 			{
 				v.X = (v.X / w) * vp.vp.Width;
 				v.Y = (v.Y / h) * vp.vp.Height;
-				return vp.unproject(v, ref viewProjVP.mat);
-			}
-			
-			public void setProj(ViewMode viewModeN, float dimXN, float dimYN, float near, float far)
-			{
-				viewMode = viewModeN;
-				dimX = dimXN;
-				dimY = dimYN;
-				projectionNear = near;
-				projectionFar = far;
+				return vp.unproject(v, ref eye.viewProjVP.mat);
 			}
 			
 			/// <summary>
@@ -6695,42 +6752,9 @@ namespace UN11
 				vp = new AppliableViewport(0, 0, texWidth, texHeight, 0.0f, 1.0f);
 			}
 			
-			private void updateEyeCData()
-			{
-				matrix.Transpose(ref viewMat, out eyeBuffer.data.viewMat);
-				matrix.Transpose(ref projMat, out eyeBuffer.data.projMat);
-				matrix.Transpose(ref viewProjVP.mat, out eyeBuffer.data.viewProj);
-				eyeBuffer.data.targetVPMat = vp.createVPMat();
-				
-				eyeBuffer.data.eyePos = new Vector4(camPos, 1.0f);
-				eyeBuffer.data.eyeDir = new Vector4(camDir, 1.0f);
-				eyeBuffer.data.targetTexData = vp.createTargetTexData();
-
-				eyeBuffer.data.farDepth = projectionFar;
-				eyeBuffer.data.invFarDepth = 1.0f / projectionFar;
-			}
-			
-			private void updateMats()
-			{
-				Vector3 eyeVec = camPos;
-				Vector3 targVec = Vector3.Add(eyeVec, camDir);
-				Vector3 upVec = camUp;
-				
-				Matrix.LookAtLH(ref eyeVec, ref targVec, ref upVec, out viewMat);
-				if (viewMode == ViewMode.Persp)
-					matrix.PerspectiveFovLH(dimX, dimY, projectionNear, projectionFar, out projMat);
-				else if (viewMode == ViewMode.Ortho)
-					matrix.OrthoLH(dimX, dimY, projectionNear, projectionFar, out projMat);
-				matrix.Multiply(ref viewMat, ref projMat, out viewProjVP.mat);
-				viewProjTex.mat = viewProjVP.mat;
-				
-				texAlignViewProj(ref viewProjTex.mat);
-			}
-			
 			public void update()
 			{
-				updateMats();
-				updateEyeCData(); // must be done after mats
+				eye.update(vp);
 			}
 			
 			public void frameUpdate()
@@ -6738,17 +6762,11 @@ namespace UN11
 				update();
 			}
 			
-			// so stuff below can be lazy
+			// so stuff below can be lazy (TODO: do we need this?)
 			public void apply(DeviceContext context)
 			{
 				vp.apply(context);
-				eyeBuffer.applyVStage(context);
-				eyeBuffer.update(context);
-			}
-
-			public void dirNormalAt(Vector3 camTarg)
-			{
-				camDir = Vector3.Normalize(Vector3.Subtract(camTarg, camPos));
+				eye.apply(context);
 			}
 		}
 		
@@ -6775,20 +6793,14 @@ namespace UN11
 			public int texWidth;
 			public int texHeight;
 			
-			public ViewMode viewMode;
 			public LightType lightType;
 			
-			public float projectionNear;
-			public float projectionFar;
-			public float dimX;
-			public float dimY;
 			public float lightDepth;
 			
 			public bool lightEnabled;
 			
-			public float3 lightPos;
-			public float3 lightDir;
-			public float3 lightUp;
+			public Eye eye;
+			
 			public float4 lightAmbient;
 			public float4 lightColMod;
 			
@@ -6798,16 +6810,7 @@ namespace UN11
 			
 			public RenderTextureSet targetTextureSet {get; private set;}
 			
-			// clipping
-			
-			public Matrix viewMat;
-			public Matrix projMat;
-			public NamedMatrix viewProjVP;
-			public NamedMatrix viewProjTex;
-			
 			public ConstBuffer<LightCData> lightBuffer;
-			
-			private ConstBuffer<EyeCData> eyeBuffer;
 			private ConstBuffer<LightMapCData> lightMapBuffer;
 			
 			public bool useLightMap {get; private set;}
@@ -6829,9 +6832,7 @@ namespace UN11
 			private Light(Device device, string name, MatrixCollection matrices, bool useLightMapN, TextureCollection textures) : base(name)
 			{
 				// loads of defaults
-				lightPos = new Vector3(0f, 0f, 0f);
-				lightDir = new Vector3(1f, 0f, 0f);
-				lightUp = new Vector3(0f, 1f, 0f);
+				eye = new Eye(device, "light_" + name, matrices);
 				
 				useLightMap = useLightMapN;
 				
@@ -6842,12 +6843,7 @@ namespace UN11
 				
 				lightType = LightType.Point;
 				
-				matrices.Set(viewProjVP = new NamedMatrix("light_" + name + "_viewproj"));
-				matrices.Set(viewProjTex = new NamedMatrix("light_" + name + "_viewprojtex"));
-				
 				lightBuffer = new ConstBuffer<LightCData>(device, LightCData.defaultSlot);
-				
-				eyeBuffer = new ConstBuffer<EyeCData>(device, EyeCData.defaultSlot);
 				lightMapBuffer = new ConstBuffer<LightMapCData>(device, LightMapCData.defaultSlot);
 				
 				allowSkip = false;
@@ -6859,12 +6855,10 @@ namespace UN11
 				apply(context);
 				
 				DrawData ddat = new DrawData(pddat, SceneType.Light);
-				ddat.eyeBuffer = eyeBuffer;
+				ddat.eye = eye;
 				ddat.lightMapBuffer = lightMapBuffer;
 				ddat.targetTex = targetTextureSet.renderTex;
 				ddat.targetRenderViewPair = targetTextureSet.renderViewPair;
-				ddat.vp = vp;
-				ddat.viewProjVP = viewProjVP.mat;
 				
 				ddat.targetRenderViewPair.apply(context, true, true);
 				
@@ -6874,15 +6868,6 @@ namespace UN11
 				{
 					gddat.drawGeometry(context, ddat);
 				}
-			}
-			
-			public void setProj(ViewMode viewModeN, float dimXN, float dimYN, float near, float far)
-			{
-				viewMode = viewModeN;
-				dimX = dimXN;
-				dimY = dimYN;
-				projectionNear = near;
-				projectionFar = far;
 			}
 			
 			/// <summary>
@@ -6902,11 +6887,11 @@ namespace UN11
 			{
 				if (useLightMap)
 				{
-					matrix.Transpose(ref viewProjTex.mat, out lightBuffer.data.lightViewProj); // texAligned
+					matrix.Transpose(ref eye.viewProjTex.mat, out lightBuffer.data.lightViewProj); // texAligned
 				}
 				
-				lightBuffer.data.lightPos = new Vector4(lightPos, 1.0f);
-				lightBuffer.data.lightDir = new Vector4(lightDir, 1.0f);
+				lightBuffer.data.lightPos = new Vector4(eye.pos, 1.0f);
+				lightBuffer.data.lightDir = new Vector4(eye.dir, 1.0f);
 				lightBuffer.data.lightAmbient = lightAmbient;
 				lightBuffer.data.lightColMod = lightColMod;
 				lightBuffer.data.lightDepth = lightDepth;
@@ -6915,31 +6900,16 @@ namespace UN11
 				lightBuffer.data.lightType = (float)lightType;
 			}
 			
-			private void updateEyeCData()
-			{
-				matrix.Transpose(ref viewMat, out eyeBuffer.data.viewMat);
-				matrix.Transpose(ref projMat, out eyeBuffer.data.projMat);
-				matrix.Transpose(ref viewProjVP.mat, out eyeBuffer.data.viewProj);
-				eyeBuffer.data.targetVPMat = vp.createVPMat();
-
-				eyeBuffer.data.eyePos = new Vector4(lightPos, 1.0f);
-				eyeBuffer.data.eyeDir = new Vector4(lightDir, 1.0f);
-				eyeBuffer.data.targetTexData = vp.createTargetTexData();
-				
-				eyeBuffer.data.farDepth = projectionFar;
-				eyeBuffer.data.invFarDepth = 1.0f / projectionFar;
-			}
-			
 			private void updateLightMapCData()
 			{
 				// TODO: WHAT IS GOING ON?!
 				if (useLightMap)
 				{
-					matrix.Transpose(ref viewProjTex.mat, out lightMapBuffer.data.lightViewProj); // texAligned
+					matrix.Transpose(ref eye.viewProjTex.mat, out lightMapBuffer.data.lightViewProj); // texAligned
 				}
 				
-				lightMapBuffer.data.lightPos = new Vector4(lightPos, 1.0f);
-				lightMapBuffer.data.lightDir = new Vector4(lightDir, 1.0f);
+				lightMapBuffer.data.lightPos = new Vector4(eye.pos, 1.0f);
+				lightMapBuffer.data.lightDir = new Vector4(eye.dir, 1.0f);
 				lightMapBuffer.data.lightAmbient = lightAmbient;
 				lightMapBuffer.data.lightColMod = lightColMod;
 				lightMapBuffer.data.lightDepth = lightDepth;
@@ -6947,31 +6917,13 @@ namespace UN11
 				lightMapBuffer.data.lightCoof = 1.0f; // HACK: are we removing this?
 				lightMapBuffer.data.lightType = (float)lightType;
 			}
-			
-			private void updateMats()
-			{
-				Vector3 eyeVec = lightPos;
-				Vector3 targVec = Vector3.Add(eyeVec, lightDir);
-				Vector3 upVec = lightUp;
-				
-				Matrix.LookAtLH(ref eyeVec, ref targVec, ref upVec, out viewMat);
-				if (viewMode == ViewMode.Persp)
-					matrix.PerspectiveFovLH(dimX, dimY, projectionNear, projectionFar, out projMat);
-				else if (viewMode == ViewMode.Ortho)
-					matrix.OrthoLH(dimX, dimY, projectionNear, projectionFar, out projMat);
-				matrix.Multiply(ref viewMat, ref projMat, out viewProjVP.mat);
-				viewProjTex.mat = viewProjVP.mat;
-				
-				texAlignViewProj(ref viewProjTex.mat);
-			}
-			
 
 			private void updateBox()
 			{
 				// TODO: work these out for ortho and persp (can probably use same as point for the time being)
 				if (lightType == LightType.Point)
 				{
-					lightBox = new BBox(lightPos, lightDepth, lightDepth, lightDepth);
+					lightBox = new BBox(eye.pos, lightDepth, lightDepth, lightDepth);
 				}
 				else
 				{
@@ -6980,14 +6932,18 @@ namespace UN11
 			}
 			
 			public void update()
-			{
-				updateMats();
-				updateLightCData();
+			{			
+				if (useLightMap)
+					eye.update(vp);
+				else
+					eye.updateMatsOnly();
+						
 				updateBox();
+				
+				updateLightCData();
 				
 				if (useLightMap)
 				{
-					updateEyeCData(); // must be done after mats
 					updateLightMapCData();
 				}
 			}
@@ -7000,8 +6956,7 @@ namespace UN11
 			public void apply(DeviceContext context)
 			{
 				vp.apply(context);
-				eyeBuffer.update(context);
-				eyeBuffer.applyVStage(context);
+				eye.apply(context);
 				lightMapBuffer.update(context);
 				lightMapBuffer.applyVStage(context);
 			}
@@ -7017,11 +6972,6 @@ namespace UN11
 			public void setRenderTarget(DeviceContext context, bool clearDepth, bool clearColor)
 			{
 				targetTextureSet.renderViewPair.apply(context, clearDepth, clearColor);
-			}
-
-			public void dirNormalAt(Vector3 camTarg)
-			{
-				lightDir = Vector3.Normalize(Vector3.Subtract(camTarg, lightPos));
 			}
 			
 			public bool canSkip(BBox bbox)
@@ -8673,12 +8623,10 @@ namespace UN11
 				l = new UN11.Light(device, "spinny_" + phaseN.ToString(), new UN11.MatrixCollection()); // burn the mats
 
 				l.lightType = UN11.LightType.Point;
-				l.dimX = 50;
-				l.dimY = 50;
 				l.lightDepth = 50;
 				l.lightAmbient = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
 				l.lightColMod = new Vector4(1, 1, 1, 1);
-				l.lightPos = new Vector3(0, 10, 5);
+				l.eye.pos = new Vector3(0, 10, 5);
 				l.lightEnabled = true;
 				l.allowSkip = true; // YES YES YES
 			}
@@ -8706,7 +8654,7 @@ namespace UN11
 					due--;
 				}
 				
-				l.lightPos = np;
+				l.eye.pos = np;
 				
 				lastTime = time;
 			}
@@ -8753,6 +8701,10 @@ namespace UN11
 		UN11.DependancyMapping<UN11.SlideDrawData> slideDependancies;
 		
 		Stopwatch clock;
+		
+		Stopwatch fpsWatch;
+		int fpsFrameCount = 0;
+		int fps = 0;
 		
 		Texture2D backBuffer = null;
 		RenderTargetView renderView = null;
@@ -8857,7 +8809,7 @@ namespace UN11
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
-			for (int i = 0; i < n * n / 10; i++)
+			for (int i = 0; i < n * n / 5; i++)
 			{
 				tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, false), "tent" + i);
 			again:
@@ -8932,6 +8884,10 @@ namespace UN11
 			// Use clock
 			clock = new Stopwatch();
 			clock.Start();
+			
+			// fps watch
+			fpsWatch = new Stopwatch();
+			fpsWatch.Start();
 
 			// Declare texture for rendering
 			backBuffer = null;
@@ -9043,7 +8999,7 @@ namespace UN11
 				
 				// set up view with correct aspect ratio
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
-				view.setProj(UN11.ViewMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
+				view.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
 				//view.initTarget(renderView);
 				view.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
 				//view.initTarget(context.OutputMerger.GetRenderTargets(1)[0]);
@@ -9066,23 +9022,21 @@ namespace UN11
 				
 				// set up sun
 				sun.lightType = UN11.LightType.Point;
-				sun.dimX = 50;
-				sun.dimY = 50;
 				sun.lightDepth = 50;
 				sun.lightAmbient = new Vector4(0.5f, 0.5f, 0.5f, 0.5f);
 				sun.lightColMod = new Vector4(1, 1, 1, 1);
-				sun.lightPos = new Vector3(0, 10, 5);
+				sun.eye.pos = new Vector3(0, 10, 5);
 				sun.lightEnabled = true;
 				sun.allowSkip = false; // provides ambience
 				
 				// set up torch
 				torch.setDimension(view.texWidth, view.texHeight);
-				torch.setProj(UN11.ViewMode.Persp, (float)Math.PI / 8.0f, 1.0f, 0.1f, 50f);
+				torch.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 8.0f, 1.0f, 0.1f, 50f);
 				torch.lightType = UN11.LightType.Persp;
 				torch.lightDepth = 50;
 				torch.lightAmbient = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
 				torch.lightColMod = new Vector4(1, 1, 1, 1);
-				torch.lightPos = new Vector3(0, 5, 0);
+				torch.eye.pos = new Vector3(0, 5, 0);
 				torch.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
 				torch.targetTextureSet.initStencil(device);
 				torch.lightEnabled = true;
@@ -9090,7 +9044,7 @@ namespace UN11
 				torch.useLightPattern = true; // don't really have any other choice
 				torch.targetTextureSet.renderViewPair.clearColour = Color.Red;
 				torch.allowSkip = true;
-				torch.dirNormalAt(new Vector3(10, 0, 10));
+				torch.eye.dirNormalAt(new Vector3(10, 0, 10));
 				
 				// set up face
 				face.setDimension(view.texWidth, view.texHeight);
@@ -9134,10 +9088,10 @@ namespace UN11
 //			eyeBuffer = new UN11.ConstBuffer<UN11.EyeCData>(device, UN11.EyeCData.defaultSlot);
 //			eyeBuffer.data.viewProj = worldViewProj;
 			
-			view.camPos = span;
-			view.dirNormalAt(Vector3.Zero);
-			torch.lightPos = span;
-			torch.dirNormalAt(Vector3.Zero);
+			view.eye.pos = span;
+			view.eye.dirNormalAt(Vector3.Zero);
+			torch.eye.pos = span;
+			torch.eye.dirNormalAt(Vector3.Zero);
 			
 			// REAL STUFF
 			
@@ -9160,7 +9114,19 @@ namespace UN11
 
 			// END REAL STUFF
 			
-			form.Text = time.ToString();
+			if (fpsWatch.ElapsedMilliseconds > 1000)
+			{
+				fpsWatch.Restart();
+				fps = fpsFrameCount;
+				fpsFrameCount = 0;
+				
+				form.Text = time.ToString() + " - " + fps.ToString() + "!";
+			}
+			else
+			{
+				fpsFrameCount++;
+				form.Text = time.ToString() + " - " + fps.ToString();
+			}
 		}
 	}
 }
