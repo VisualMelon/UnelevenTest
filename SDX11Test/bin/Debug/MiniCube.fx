@@ -835,7 +835,7 @@ VS_Output_Tex VShade_Sprite_Smoke(VS_Input_Tex inp)
 	}
 
 	float4 oth = spriteData[inp.tti + 1];
-	offset *= spriteDim; // breaks stuff
+	offset *= spriteDim;
 	outp.col = inp.col;
 
 	if (oth.x > oth.w)
@@ -854,6 +854,33 @@ VS_Output_Tex VShade_Sprite_Smoke(VS_Input_Tex inp)
 
 	return outp;
 }
+
+VS_Output_Tex VShade_Sprite_Flat(VS_Input_Tex inp)
+{
+	VS_Output_Tex outp = (VS_Output_Tex)0;
+	float4 centre = (float4)0;
+	float4 offset = inp.pos;
+	if (inp.tti >= 0)
+	{
+		centre = spriteData[inp.tti];
+	}
+
+	float4 oth = spriteData[inp.tti + 1];
+	offset *= spriteDim;
+	outp.col = inp.col;
+
+	centre = mul(centre, viewMat);
+	outp.pos = mul(centre + offset, projMat);
+	outp.altPos = outp.pos;
+	outp.altPos.z = outp.altPos.z * outp.altPos.w * invFarDepth;
+	outp.col = inp.col;
+	outp.col.w *= oth.w;
+	outp.txc = inp.txc;
+
+	return outp;
+}
+
+
 
 PS_Output PShade_Sprite(VS_Output_Tex inp)
 { // no light coof

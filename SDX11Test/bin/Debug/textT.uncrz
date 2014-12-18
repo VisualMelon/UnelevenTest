@@ -73,6 +73,11 @@ vertex PCT
 pass vs_4_0 VShade_Sprite_Smoke ps_4_0 PShade_Sprite
 end tech
 
+tech flatSprite
+vertex PCT
+pass vs_4_0 VShade_Sprite_Flat ps_4_0 PShade_Sprite
+end tech
+
 
 // test techniques
 

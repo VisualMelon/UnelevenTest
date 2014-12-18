@@ -3292,7 +3292,7 @@ namespace UN11
 			}
 		}
 		
-		public enum FloatOffset : int
+		/*public enum FloatOffset : int
 		{
 			invalid = -1
 		}
@@ -3300,6 +3300,73 @@ namespace UN11
 		public enum Vec4Offset : int
 		{
 			invalid = -1
+		}*/
+		
+		// semantics
+		public struct FloatOffset
+		{
+			public int offset;
+			
+			public static FloatOffset invalid = new FloatOffset(-1);
+			
+			public FloatOffset(int offsetN)
+			{
+				offset = offsetN;
+			}
+			
+			public static implicit operator int(FloatOffset fo)
+			{
+				return fo.offset;
+			}
+		}
+		
+		public struct Vec4Offset
+		{
+			public int offset;
+			
+			public static Vec4Offset invalid = new Vec4Offset(-1);
+			
+			public Vec4Offset(int offsetN)
+			{
+				offset = offsetN;
+			}
+			
+			public FloatOffset X
+			{
+				get
+				{
+					return new FloatOffset(offset + 0);
+				}
+			}
+			
+			public FloatOffset Y
+			{
+				get
+				{
+					return new FloatOffset(offset + 1);
+				}
+			}
+			
+			public FloatOffset Z
+			{
+				get
+				{
+					return new FloatOffset(offset + 2);
+				}
+			}
+			
+			public FloatOffset W
+			{
+				get
+				{
+					return new FloatOffset(offset + 3);
+				}
+			}
+			
+			public static implicit operator int(Vec4Offset v4o)
+			{
+				return v4o.offset;
+			}
 		}
 		
 		public class SpriteDataLayout
@@ -5984,6 +6051,7 @@ namespace UN11
 			public float texScaleY;
 			public TexAlign texAlign;
 			public TexMode texMode;
+			public AlphaMode alphaMode;
 			public float texHAlignOffset; // flex only
 			public float texVAlignOffset;
 			
@@ -6010,6 +6078,8 @@ namespace UN11
 				colmod = new Vector4(1f, 1f, 1f, 1f);
 				
 				clcTexVerts = new VertexPCT[4];
+				
+				alphaMode = AlphaMode.None;
 			}
 			
 			protected override void updateMe(ViewTrans vt)
@@ -6182,7 +6252,20 @@ namespace UN11
 				if (tech == null || clcTexVerts == null)
 					return;
 				
-				pddat.uneleven.blendStates.addSrcInvSrc.apply(context);
+				// TODO: organise some setAlphaMode stuff, or something
+				switch (alphaMode)
+				{
+					case AlphaMode.None:
+						pddat.uneleven.blendStates.none.apply(context);
+						break;
+					case AlphaMode.Add:
+						pddat.uneleven.blendStates.addOneOne.apply(context);
+						break;
+					case AlphaMode.Nice:
+						pddat.uneleven.blendStates.addSrcInvSrc.apply(context);
+						break;
+				}
+				
 				texness.applyTextures(context);
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
 				
@@ -8349,10 +8432,10 @@ namespace UN11
 							switch (data[1])
 							{
 							case "pos0":
-								curSprite.layout.Position0 = (Vec4Offset)(int.Parse(data[2]));
+								curSprite.layout.Position0 = new Vec4Offset(int.Parse(data[2]));
 								break;
 							case "oth0":
-								curSprite.layout.Other0 = (Vec4Offset)(int.Parse(data[2]));
+								curSprite.layout.Other0 = new Vec4Offset(int.Parse(data[2]));
 								break;
 							}
 						}
@@ -8503,10 +8586,135 @@ namespace UN11
 	/// </summary>
 	internal class Program
 	{
+		private static Random rnd = new Random();
+			
 		//	  [STAThread]
 		private static void Main()
 		{
 			new Program();
+		}
+		
+		public class PointSpriteThings
+		{
+			private UN11.Sprite pointSprite;
+			private List<UN11.SpriteData> sDats;
+			
+			private float lastTime = -1f;
+			
+			public PointSpriteThings(UN11 uneleven)
+			{
+				pointSprite = uneleven.sprites["lpoint"];
+				
+				sDats = new List<UN11.SpriteData>();
+			}
+			
+			public UN11.ManySpriteDrawData createDDat(UN11.SpriteDrawFlags flags)
+			{
+				UN11.ManySpriteDrawData ddat = new UN11.ManySpriteDrawData(pointSprite, flags);
+				ddat.sDats = sDats;
+				return ddat;
+			}
+			
+			public void eval(float time)
+			{
+				if (lastTime < 0)
+				{
+					lastTime = time;
+					return;
+				}
+				
+				float dt = time - lastTime;
+				
+				for (int i = sDats.Count - 1; i >= 0; i--)
+				{
+					sDats[i][pointSprite.layout.Other0.W] -= dt * 10f * 2f;
+					if (sDats[i][pointSprite.layout.Other0.W] <= 0)
+						sDats.RemoveAt(i);
+				}
+				
+				lastTime = time;
+			}
+			
+			public void addRnd(Vector3 midPos)
+			{
+				UN11.SpriteData sd = new UN11.SpriteData(pointSprite);
+				
+				sd[pointSprite.layout.Position0] = new Vector4(
+					midPos.X + rnd.NextFloat(-1, 1),
+					midPos.Y + rnd.NextFloat(-1, 1),
+					midPos.Z + rnd.NextFloat(-1, 1),
+					1f);
+				
+				sd[pointSprite.layout.Other0] = new Vector4(
+					0.0f,
+					0.0f,
+					0.0f,
+					rnd.NextFloat(0f, 2f) + 0.2f);
+				
+				sDats.Add(sd);
+			}
+		}
+		
+		public class SpinnyLightThing
+		{
+			public double phase {get; private set;}
+			public UN11.Light l {get; private set;}
+			public PointSpriteThings psts {get; private set;}
+			
+			private float lastTime = -1f;
+			
+			private float due = 0f;
+			
+			public SpinnyLightThing(Device device, double phaseN, PointSpriteThings pstsN)
+			{
+				phase = phaseN;
+				psts = pstsN;
+				
+				l = new UN11.Light(device, "spinny_" + phaseN.ToString(), new UN11.MatrixCollection()); // burn the mats
+
+				l.lightType = UN11.LightType.Point;
+				l.dimX = 50;
+				l.dimY = 50;
+				l.lightDepth = 50;
+				l.lightAmbient = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
+				l.lightColMod = new Vector4(1, 1, 1, 1);
+				l.lightPos = new Vector3(0, 10, 5);
+				l.lightEnabled = true;
+				l.allowSkip = true; // YES YES YES
+			}
+			
+			public void eval(float time)
+			{
+				if (lastTime < 0)
+				{
+					lastTime = time;
+					return;
+				}
+				
+				float dt = time - lastTime;
+				due += dt * 1000f;
+				
+				//time *= 10f;
+				double ang = time * 3.0f + phase;
+				
+				Vector3 np = new Vector3((float)(Math.Sin(ang) * 90.0), (float)(12.0 + Math.Cos(ang * 2.0 + (double)time) * 5.0), (float)(Math.Cos(ang) * 90.0));
+				
+				while (due > 1f)
+				{
+					psts.addRnd(np);
+					
+					due--;
+				}
+				
+				l.lightPos = np;
+				
+				lastTime = time;
+			}
+			
+			public void update()
+			{
+				l.update();
+			}
 		}
 		
 		UN11 uneleven;
@@ -8538,6 +8746,9 @@ namespace UN11
 		UN11.FrameTickData ftdat;
 		UN11.ManyModelDrawData mmddat;
 		UN11.ManySpriteDrawData msddat;
+		
+		PointSpriteThings psts;
+		List<SpinnyLightThing> slts;
 		
 		UN11.DependancyMapping<UN11.SlideDrawData> slideDependancies;
 		
@@ -8642,7 +8853,6 @@ namespace UN11
 			tent.mdl.changeAnim(uneleven.anims["tree_spin"]);
 			
 			// lots of trees?!
-			Random rnd = new Random();
 			int n = 100;
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
@@ -8676,7 +8886,7 @@ namespace UN11
 			ftdat.updateable.Add(smoke); // bit awkward
 			
 			n += 20; // more coverage, just for fun
-			
+			n=0;
 			msddat = new UN11.ManySpriteDrawData(smoke, UN11.SpriteDrawFlags.colourDefault);
 			for (int i = 0; i < n * n / 1; i++)
 			{
@@ -8692,6 +8902,23 @@ namespace UN11
 			msddat2.sDats = msddat.sDats;
 			vddat.geometryDrawDatas.Add(msddat2);
 			// TODO: sort out sprite light
+			//
+			
+			// lpoints
+			UN11.Sprite lpoint = uneleven.sprites["lpoint"];
+			ftdat.updateable.Add(lpoint); // bit awkward
+			
+			psts = new Program.PointSpriteThings(uneleven); // hmm
+			vddat.geometryDrawDatas.Add(psts.createDDat(UN11.SpriteDrawFlags.colourDefault));
+			
+			slts = new List<Program.SpinnyLightThing>();
+			int sltn = 8;
+			for (int i = 0; i < sltn; i++)
+			{
+				SpinnyLightThing tslt = new SpinnyLightThing(device, (Math.PI * 2.0 / (double)sltn) * (double)i, psts);
+				vddat.lights.Add(tslt.l);
+				slts.Add(tslt);
+			}
 			//
 			
 			slideDependancies = new UN11.DependancyMapping<UN11.SlideDrawData>();
@@ -8915,7 +9142,13 @@ namespace UN11
 			// REAL STUFF
 			
 			telem.update(vt, true);
-
+			
+			psts.eval(time);
+			foreach (SpinnyLightThing slt in slts)
+			{
+				slt.eval(time);
+				slt.update();
+			}
 
 			uneleven.tick(ftdat);
 			uneleven.drawFrame(context, fddat);

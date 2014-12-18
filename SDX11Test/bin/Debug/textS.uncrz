@@ -20,3 +20,25 @@ sidewisealpha none // what is this?
 dim 2 2 0
 
 end sprite
+
+
+sprite lpoint
+
+pretty colour
+colmod 1 1 1 1
+technique flatSprite
+technique_over simpleSideOver
+texture b_ring.png
+lighting none
+alpha add
+end pretty
+
+prims quad2
+
+layout pos0 0
+layout oth0 4
+
+sidewisealpha none // what is this?
+dim 2 2 0
+
+end sprite
