@@ -558,6 +558,21 @@ namespace UN11
 			}
 		}
 		
+		public static int vertexStride(VertexType vertexType)
+		{
+			switch (vertexType)
+			{
+				case VertexType.VertexOver:
+					return VertexOver.size;
+				case VertexType.VertexPC:
+					return VertexPC.size;
+				case VertexType.VertexPCT:
+					return VertexPCT.size;
+			}
+			
+			return -1; // joy
+		}
+		
 		
 		public interface TTIVertex
 		{
@@ -2049,17 +2064,17 @@ namespace UN11
 				}
 			}
 			
-			private VertexType vertexType;
+			public VertexType vertexType {get; private set;}
 			private int stride;
 			
 			private Buffer vbuff;
 			private VertexBufferBinding vbuffBinding;
 			private Buffer ibuff;
-			private int numVertices;
-			private int numIndices;
+			public int numVertices {get; private set;}
+			public int numIndices {get; private set;}
 			
-			private int batchCopies;
-			private int highTti;
+			public int batchCopies {get; private set;}
+			public int highTti {get; private set;}
 			
 			private VT[] vertices;
 			private short[] indicies;
@@ -2097,19 +2112,7 @@ namespace UN11
 			private void setVertexType(VertexType vertexTypeN)
 			{
 				vertexType = vertexTypeN;
-				
-				switch (vertexType)
-				{
-					case VertexType.VertexOver:
-						stride = VertexOver.size;
-						break;
-					case VertexType.VertexPC:
-						stride = VertexPC.size;
-						break;
-					case VertexType.VertexPCT:
-						stride = VertexPCT.size;
-						break;
-				}
+				stride = vertexStride(vertexType);
 			}
 			
 			// 1 big primative section
@@ -2466,6 +2469,8 @@ namespace UN11
 				}
 			}
 			
+			// FIXME: there is alot wrong with this method
+			// (need the model to expose some applyPrims or something method, so we can get back the VI buffers after the over has butchered them)
 			public void drawSideOver(DeviceContext context, DrawData ddat)
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
@@ -2485,6 +2490,7 @@ namespace UN11
 				}
 			}
 			
+			// FIXME: there is alot wrong with this method too
 			public void drawToSide(DeviceContext context, DrawData ddat, Model mdl)
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
@@ -3789,7 +3795,7 @@ namespace UN11
 				indicies.Add((short)0);
 				indicies.Add((short)2);
 				indicies.Add((short)3);
-		
+				
 				primTopology = PrimitiveTopology.TriangleList;
 				
 				create(device, context, spriteSize - 1, batchCopiesN, vPCTs, indicies);
@@ -8881,7 +8887,6 @@ namespace UN11
 			
 			// lots of trees?!
 			int n = 100;
-			n=0;
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
