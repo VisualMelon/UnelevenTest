@@ -2115,7 +2115,7 @@ namespace UN11
 			// 1 big primative section
 			public void create(Device device, DeviceContext context, int highTtiN, int batchCopiesN, List<VT> vertices, List<short> indicies)
 			{
-				create(device, context, highTtiN, batchCopiesN, vertices, indicies, new List<MundanePrimativeSection> {new MundanePrimativeSection(0, numIndices)});
+				create(device, context, highTtiN, batchCopiesN, vertices, indicies, new List<MundanePrimativeSection> {new MundanePrimativeSection(0, indicies.Count)});
 			}
 			
 			// given sections
@@ -2130,7 +2130,7 @@ namespace UN11
 				createIBuff(device, context, indicies.ToArray(), sections);
 			}
 			
-			public void fillIBuff<ST>(DeviceContext context, List<ST> sections) where ST : PrimativeSection
+			private void fillIBuff<ST>(DeviceContext context, List<ST> sections) where ST : PrimativeSection
 			{
 				DataStream dstream;
 				context.MapSubresource(ibuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
@@ -2144,7 +2144,7 @@ namespace UN11
 					{
 						for (int j = 0; j < sec.indexCount; j++)
 						{
-							short s = indicies[j];
+							short s = indicies[j + sec.indexOffset];
 							s += (short)idxOffset;
 							dstream.Write(s);
 						}
@@ -2158,7 +2158,7 @@ namespace UN11
 				context.UnmapSubresource(ibuff, 0);
 			}
 			
-			public void createIBuff<ST>(Device device, DeviceContext context, short[] ids, List<ST> sections) where ST : PrimativeSection
+			private void createIBuff<ST>(Device device, DeviceContext context, short[] ids, List<ST> sections) where ST : PrimativeSection
 			{
 				ibuff = new Buffer(device, new BufferDescription(numIndices * sizeof (short) * batchCopies, ResourceUsage.Dynamic, BindFlags.IndexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, sizeof(short)));
 				
@@ -2168,7 +2168,7 @@ namespace UN11
 				fillIBuff(context, sections);
 			}
 			
-			public void fillVBuff(DeviceContext context)
+			private void fillVBuff(DeviceContext context)
 			{
 				DataStream dstream;
 				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
@@ -2179,7 +2179,6 @@ namespace UN11
 				for (int i = 0; i < batchCopies; i++)
 				{
 					// sort out ttiOffset for batch copies
-					ttiOffset += highTti + 1; // 1 makes it the count
 
 					for (int j = 0; j < numVertices; j++)
 					{
@@ -2187,61 +2186,16 @@ namespace UN11
 						v.vertexTti += ttiOffset;
 						dstream.Write(v);
 					}
-				}
-				
-				
-				dstream.Dispose();
-				context.UnmapSubresource(vbuff, 0);
-			}
-			
-			/*
-			private unsafe void fillVBuffPC(DeviceContext context)
-			{
-				DataStream dstream;
-				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
-				
-				dstream.Write(vertices[0]);
-				
-				byte* buffPtr = (byte*)dstream.DataPointer;
-				fixed (VertexPC* vertexPtrVP = verticesPC)
-				{
-					byte* verticesPtr = (byte*)vertexPtrVP;
 					
-					if (batchCopies == 1)
-					{
-						Utils.copy(verticesPtr, buffPtr, numVertices * stride);
-					}
-					else
-					{
-						int ttiOffset = 0;
-
-						// madness ensues
-						for (int i = 0; i < batchCopies; i++)
-						{
-							byte* copyPtr = (byte*)buffPtr + i * numVertices * stride;
-							Utils.copy(copyPtr, buffPtr, numVertices * stride);
-							
-							// sort out ttiOffset for batch copies
-							if (i > 0)
-							{
-								ttiOffset += highTti + 1; // 1 makes it the count
-
-								VertexPC* vPCs = (VertexPC*)copyPtr;
-								for (int j = 0; j < numVertices; j++)
-								{
-									vPCs[j].tti += ttiOffset;
-								}
-							}
-						}
-					}
+					ttiOffset += highTti + 1; // 1 makes it the count
 				}
+				
 				
 				dstream.Dispose();
 				context.UnmapSubresource(vbuff, 0);
 			}
-			*/
 			
-			public void createVBuff(Device device, DeviceContext context, VT[] vts)
+			private void createVBuff(Device device, DeviceContext context, VT[] vts)
 			{
 				vbuff = new Buffer(device, new BufferDescription(numVertices * stride * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
 				
@@ -3805,48 +3759,20 @@ namespace UN11
 		}
 		
 		// UNCRZ_SpriteBuffer in Barembs
-		public class SpritePrimatives : ANamed
+		public class SpritePrimatives : TTIPrimatives<VertexPCT>, Named
 		{
-			public Buffer vbuff;
-			public VertexBufferBinding vbuffBinding;
-			public Buffer ibuff;
-			public int stride = VertexPCT.size;
-			public int numVertices;
-			public int numIndices;
-			
+			public string name {get; private set;}
 			public int spriteSize;
-			public int batchCopies;
-			public int highTti;
 			
-			public VertexPCT[] verticesPCT;
-			public short[] indices;
-			
-			public PrimitiveTopology primTopology;
-			
-			public SpritePrimatives(string name) : base(name)
+			public SpritePrimatives(string nameN) : base(VertexType.VertexPCT)
 			{
-				// joy
-			}
-			
-			// TODO: munge VI/Primative stuff for Models and Sprites into one class. worst case scenario, we have 2 sepatate FillIBuff methods, it will be glorius
-			public void applyVIBuffers(DeviceContext context)
-			{
-				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
-				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
-			}
-			
-			public void drawPrims(DeviceContext context, int batchCount)
-			{
-				context.InputAssembler.PrimitiveTopology = primTopology; // might want to find a better way of doing this, but we used to pass this to DrawIndexedPrimative, so it can't be too slow
-				context.DrawIndexed(numIndices * batchCount, 0, 0);
+				name = nameN;
 			}
 			
 			// TODO: do we want sprites to be able to define their own IV (i.e. in the file)?
 			public void createQuad(Device device, DeviceContext context, int spriteSizeN, int batchCopiesN)
 			{
 				spriteSize = spriteSizeN; // e.g. 2 (float4s): float4 loc, float4 dat
-				batchCopies = batchCopiesN;
-				highTti = spriteSize - 1;
 				
 				List<VertexPCT> vPCTs = new List<UN11.VertexPCT>();
 				List<short> indicies = new List<short>();
@@ -3866,115 +3792,7 @@ namespace UN11
 		
 				primTopology = PrimitiveTopology.TriangleList;
 				
-				numVertices = vPCTs.Count;
-				createVBuff(device, context, vPCTs.ToArray());
-				numIndices = indicies.Count;
-				createIBuff(device, context, indicies.ToArray());
-			}
-			
-			public unsafe void fillIBuff(DeviceContext context)
-			{
-				DataStream dstream;
-				context.MapSubresource(ibuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
-				
-				byte* buffPtr = (byte*)dstream.DataPointer;
-				fixed (short* indicesPtrShort = indices)
-				{
-					byte* indicesPtr = (byte*)indicesPtrShort;
-					
-					if (batchCopies == 1)
-					{
-						Utils.copy(indicesPtr, buffPtr, numIndices * sizeof(short));
-					}
-					else
-					{
-						int idxOffset = 0;
-						for (int i = 0; i < batchCopies; i++)
-						{
-							byte* copyPtr = buffPtr + i * numIndices * sizeof (short);
-							Utils.copy(indicesPtr, copyPtr, numIndices * sizeof (short));
-							
-							if (i > 0)
-							{
-								idxOffset += numVertices;
-								
-								short* idxs = (short*)copyPtr;
-								for (int j = 0; j < numIndices; j++)
-								{
-									idxs[j] += (short)idxOffset;
-								}
-							}
-						}
-					}
-				}
-				
-				dstream.Dispose();
-				context.UnmapSubresource(ibuff, 0);
-			}
-			
-			public void createIBuff(Device device, DeviceContext context, short[] ids)
-			{
-				ibuff = new Buffer(device, new BufferDescription(numIndices * sizeof (short) * batchCopies, ResourceUsage.Dynamic, BindFlags.IndexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, sizeof(short)));
-				
-				indices = new short[ids.Length];
-				Utils.copy<short>(0, ids, 0, indices, ids.Length);
-				
-				fillIBuff(context);
-			}
-			
-			private unsafe void fillVBuff(DeviceContext context)
-			{
-				DataStream dstream;
-				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
-				
-				byte* buffPtr = (byte*)dstream.DataPointer;
-				fixed (VertexPCT* vertexPtrVPCT = verticesPCT)
-				{
-					byte* verticesPtr = (byte*)vertexPtrVPCT;
-					
-					if (batchCopies == 1)
-					{
-						Utils.copy(verticesPtr, buffPtr, numVertices * stride);
-					}
-					else
-					{
-						int ttiOffset = 0;
-
-						// madness ensues
-						for (int i = 0; i < batchCopies; i++)
-						{
-							byte* copyPtr = (byte*)buffPtr + i * numVertices * stride;
-							Utils.copy(verticesPtr, copyPtr, numVertices * stride);
-							
-							// sort out ttiOffset for batch copies
-							if (i > 0)
-							{
-								ttiOffset += highTti + 1; // 1 makes it the count
-
-								VertexPCT* vPCTs = (VertexPCT*)copyPtr;
-								for (int j = 0; j < numVertices; j++)
-								{
-									vPCTs[j].tti += ttiOffset;
-								}
-							}
-						}
-					}
-				}
-				
-				dstream.Dispose();
-				context.UnmapSubresource(vbuff, 0);
-			}
-			
-			public void createVBuff(Device device, DeviceContext context, VertexPCT[] vPCTs /*add formats here as appropriate, hope there arn't too many*/)
-			{
-				vbuff = new Buffer(device, new BufferDescription(numVertices * stride * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
-				
-				vbuffBinding = new VertexBufferBinding(vbuff, stride, 0);
-				
-				verticesPCT = new VertexPCT[vPCTs.Length];
-				Utils.copy<VertexPCT>(0, vPCTs, 0, verticesPCT, vPCTs.Length);
-				
-				fillVBuff(context);
+				create(device, context, spriteSize - 1, batchCopiesN, vPCTs, indicies);
 			}
 		}
 		
@@ -9063,6 +8881,7 @@ namespace UN11
 			
 			// lots of trees?!
 			int n = 100;
+			n=0;
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
