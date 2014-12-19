@@ -558,8 +558,14 @@ namespace UN11
 			}
 		}
 		
+		
+		public interface TTIVertex
+		{
+			float vertexTti {get; set;}
+		}
+		
 		[StructLayout(LayoutKind.Explicit)]
-		public struct VertexPC
+		public struct VertexPC : TTIVertex
 		{
 			public static readonly InputElement[] layoutArr;
 			public static readonly int size;
@@ -599,6 +605,18 @@ namespace UN11
 			[FieldOffset(44)] public float a;
 			
 			[FieldOffset(48)] public float tti;
+			
+			public float vertexTti
+			{
+				get
+				{
+					return tti;
+				}
+				set
+				{
+					tti = value;
+				}
+			}
 			
 			public VertexPC(Vector4 posN, Vector4 colN) : this()
 			{
@@ -735,10 +753,8 @@ namespace UN11
 			}
 		}
 		
-		
-		
 		[StructLayout(LayoutKind.Explicit)]
-		public struct VertexPCT
+		public struct VertexPCT : TTIVertex
 		{
 			public static readonly InputElement[] layoutArr;
 			public static readonly int size;
@@ -783,6 +799,18 @@ namespace UN11
 			[FieldOffset(52)] public float tv;
 			
 			[FieldOffset(56)] public float tti;
+			
+			public float vertexTti
+			{
+				get
+				{
+					return tti;
+				}
+				set
+				{
+					tti = value;
+				}
+			}
 			
 			public VertexPCT(VertexPC vpcN, float tuN, float tvN) : this()
 			{
@@ -2001,17 +2029,242 @@ namespace UN11
 			}
 		}
 		
-		public class Section : Named
+		public interface PrimativeSection
+		{
+			int indexOffset {get;}
+			int indexCount {get;}
+		}
+		
+		public class TTIPrimatives<VT> where VT : struct, TTIVertex
+		{
+			public class MundanePrimativeSection : PrimativeSection
+			{
+				public int indexOffset {get; private set;}
+				public int indexCount {get; private set;}
+				
+				public MundanePrimativeSection(int indexOffsetN, int indexCountN)
+				{
+					indexOffset = indexOffsetN;
+					indexCount = indexCountN;
+				}
+			}
+			
+			private VertexType vertexType;
+			private int stride;
+			
+			private Buffer vbuff;
+			private VertexBufferBinding vbuffBinding;
+			private Buffer ibuff;
+			private int numVertices;
+			private int numIndices;
+			
+			private int batchCopies;
+			private int highTti;
+			
+			private VT[] vertices;
+			private short[] indicies;
+			
+			public PrimitiveTopology primTopology {get; set;} // don't forget to set me
+			
+			/// <summary>
+			/// Do not lie to this
+			/// </summary>
+			public TTIPrimatives(VertexType vertexTypeN)
+			{
+				setVertexType(vertexTypeN);
+			}
+			
+			// TODO: munge VI/Primative stuff for Models and Sprites into one class. worst case scenario, we have 2 sepatate FillIBuff methods, it will be glorius
+			public void applyVIBuffers(DeviceContext context)
+			{
+				context.InputAssembler.SetIndexBuffer(ibuff, Format.R16_UInt, 0);
+				context.InputAssembler.SetVertexBuffers(0, vbuffBinding);
+				context.InputAssembler.PrimitiveTopology = primTopology;
+			}
+			
+			// draw the lot
+			public void drawPrims(DeviceContext context, int batchCount)
+			{
+				context.DrawIndexed(numIndices * batchCount, 0, 0);
+			}
+			
+			// draw the specific section
+			private void drawPrims(DeviceContext context, int batchCount, PrimativeSection sec)
+			{
+				context.DrawIndexed(sec.indexCount * batchCount, sec.indexOffset * batchCopies, 0);
+			}
+			
+			private void setVertexType(VertexType vertexTypeN)
+			{
+				vertexType = vertexTypeN;
+				
+				switch (vertexType)
+				{
+					case VertexType.VertexOver:
+						stride = VertexOver.size;
+						break;
+					case VertexType.VertexPC:
+						stride = VertexPC.size;
+						break;
+					case VertexType.VertexPCT:
+						stride = VertexPCT.size;
+						break;
+				}
+			}
+			
+			// 1 big primative section
+			public void create(Device device, DeviceContext context, int highTtiN, int batchCopiesN, List<VT> vertices, List<short> indicies)
+			{
+				create(device, context, highTtiN, batchCopiesN, vertices, indicies, new List<MundanePrimativeSection> {new MundanePrimativeSection(0, numIndices)});
+			}
+			
+			// given sections
+			public void create<ST>(Device device, DeviceContext context, int highTtiN, int batchCopiesN, List<VT> vertices, List<short> indicies, List<ST> sections) where ST : PrimativeSection
+			{
+				highTti = highTtiN;
+				batchCopies = batchCopiesN;
+				
+				numVertices = vertices.Count;
+				createVBuff(device, context, vertices.ToArray());
+				numIndices = indicies.Count;
+				createIBuff(device, context, indicies.ToArray(), sections);
+			}
+			
+			public void fillIBuff<ST>(DeviceContext context, List<ST> sections) where ST : PrimativeSection
+			{
+				DataStream dstream;
+				context.MapSubresource(ibuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
+				
+				
+				foreach (PrimativeSection sec in sections)
+				{
+					int idxOffset = 0;
+					
+					for (int i = 0; i < batchCopies; i++)
+					{
+						for (int j = 0; j < sec.indexCount; j++)
+						{
+							short s = indicies[j];
+							s += (short)idxOffset;
+							dstream.Write(s);
+						}
+						
+						idxOffset += numVertices;
+					}
+				}
+				
+				
+				dstream.Dispose();
+				context.UnmapSubresource(ibuff, 0);
+			}
+			
+			public void createIBuff<ST>(Device device, DeviceContext context, short[] ids, List<ST> sections) where ST : PrimativeSection
+			{
+				ibuff = new Buffer(device, new BufferDescription(numIndices * sizeof (short) * batchCopies, ResourceUsage.Dynamic, BindFlags.IndexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, sizeof(short)));
+				
+				indicies = new short[ids.Length];
+				Utils.copy<short>(0, ids, 0, indicies, ids.Length);
+				
+				fillIBuff(context, sections);
+			}
+			
+			public void fillVBuff(DeviceContext context)
+			{
+				DataStream dstream;
+				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
+				
+				
+				int ttiOffset = 0;
+				
+				for (int i = 0; i < batchCopies; i++)
+				{
+					// sort out ttiOffset for batch copies
+					ttiOffset += highTti + 1; // 1 makes it the count
+
+					for (int j = 0; j < numVertices; j++)
+					{
+						VT v = vertices[j];
+						v.vertexTti += ttiOffset;
+						dstream.Write(v);
+					}
+				}
+				
+				
+				dstream.Dispose();
+				context.UnmapSubresource(vbuff, 0);
+			}
+			
+			/*
+			private unsafe void fillVBuffPC(DeviceContext context)
+			{
+				DataStream dstream;
+				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
+				
+				dstream.Write(vertices[0]);
+				
+				byte* buffPtr = (byte*)dstream.DataPointer;
+				fixed (VertexPC* vertexPtrVP = verticesPC)
+				{
+					byte* verticesPtr = (byte*)vertexPtrVP;
+					
+					if (batchCopies == 1)
+					{
+						Utils.copy(verticesPtr, buffPtr, numVertices * stride);
+					}
+					else
+					{
+						int ttiOffset = 0;
+
+						// madness ensues
+						for (int i = 0; i < batchCopies; i++)
+						{
+							byte* copyPtr = (byte*)buffPtr + i * numVertices * stride;
+							Utils.copy(copyPtr, buffPtr, numVertices * stride);
+							
+							// sort out ttiOffset for batch copies
+							if (i > 0)
+							{
+								ttiOffset += highTti + 1; // 1 makes it the count
+
+								VertexPC* vPCs = (VertexPC*)copyPtr;
+								for (int j = 0; j < numVertices; j++)
+								{
+									vPCs[j].tti += ttiOffset;
+								}
+							}
+						}
+					}
+				}
+				
+				dstream.Dispose();
+				context.UnmapSubresource(vbuff, 0);
+			}
+			*/
+			
+			public void createVBuff(Device device, DeviceContext context, VT[] vts)
+			{
+				vbuff = new Buffer(device, new BufferDescription(numVertices * stride * batchCopies, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
+				
+				vbuffBinding = new VertexBufferBinding(vbuff, stride, 0);
+				
+				vertices = new VT[vts.Length];
+				Utils.copy<VT>(0, vts, 0, vertices, vts.Length);
+				
+				fillVBuff(context);
+			}
+		}
+		
+		public class Section : Named, PrimativeSection
 		{
 			public string name {get; private set;}
 			
 			public SectionPrettyness[] prettynessess;
 			
 			public int batchCopies;
-			public int indexOffset;
+			public int indexOffset {get; set;}
+			public int indexCount {get; set;}
 			public int triCount; // formerly vLen
 			
-			public int indexCount;
 			
 			public bool drawDecals;
 			public bool acceptDecals;
@@ -8577,6 +8830,10 @@ namespace UN11
 				
 				for (int i = sDats.Count - 1; i >= 0; i--)
 				{
+					sDats[i][pointSprite.layout.Position0.X] += dt * sDats[i][pointSprite.layout.Other0.X] * 20f;
+					sDats[i][pointSprite.layout.Position0.Y] += dt * sDats[i][pointSprite.layout.Other0.Y] * 20f;
+					sDats[i][pointSprite.layout.Position0.Z] += dt * sDats[i][pointSprite.layout.Other0.Z] * 20f;
+					
 					sDats[i][pointSprite.layout.Other0.W] -= dt * 10f * 2f;
 					if (sDats[i][pointSprite.layout.Other0.W] <= 0)
 						sDats.RemoveAt(i);
@@ -8590,15 +8847,15 @@ namespace UN11
 				UN11.SpriteData sd = new UN11.SpriteData(pointSprite);
 				
 				sd[pointSprite.layout.Position0] = new Vector4(
-					midPos.X + rnd.NextFloat(-1, 1),
-					midPos.Y + rnd.NextFloat(-1, 1),
-					midPos.Z + rnd.NextFloat(-1, 1),
+					midPos.X + rnd.NextFloat(-1, 1) * 0.2f,
+					midPos.Y + rnd.NextFloat(-1, 1) * 0.2f,
+					midPos.Z + rnd.NextFloat(-1, 1) * 0.2f,
 					1f);
 				
 				sd[pointSprite.layout.Other0] = new Vector4(
-					0.0f,
-					0.0f,
-					0.0f,
+					rnd.NextFloat(-1, 1),
+					rnd.NextFloat(-1, 1),
+					rnd.NextFloat(-1, 1),
 					rnd.NextFloat(0f, 2f) + 0.2f);
 				
 				sDats.Add(sd);
@@ -8792,9 +9049,9 @@ namespace UN11
 			ment.or.offset.Y = -15;
 			ment.update(true);
 			ment.mdl.noCull = true;
-			//vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(ment));
+			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(ment));
 			// disable water for testing
-			vddat.geometryDrawDatas.Add(new UN11.LambdaGeometryDrawData(() => ment.mdl.getSec("water").sectionEnabled = false, new UN11.ModelEntityDrawData(ment), () => ment.mdl.getSec("water").sectionEnabled = true));
+			//vddat.geometryDrawDatas.Add(new UN11.LambdaGeometryDrawData(() => ment.mdl.getSec("water").sectionEnabled = false, new UN11.ModelEntityDrawData(ment), () => ment.mdl.getSec("water").sectionEnabled = true));
 			
 			UN11.ModelEntity tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, true), "tent");
 			tent.update(true);
@@ -8822,6 +9079,15 @@ namespace UN11
 				tent.or.offset.Y -= distRes;
 				if (tent.or.offset.Y < ment.or.offset.Y + 0.01f)
 					goto again;
+
+			againAgain:
+				UN11.Segment mts = tent.mdl.segments[0];
+				mts.or.rotation.X = rnd.NextFloat(-0.05f, 0.05f);
+				mts.or.rotation.Y = rnd.NextFloat(0, (float)Math.PI * 2.0f);
+				mts.or.rotation.Z = rnd.NextFloat(-0.05f, 0.05f);
+				
+				if (mts.or.rotation.X * mts.or.rotation.X + mts.or.rotation.Z * mts.or.rotation.Z > 0.0025)
+					goto againAgain;
 				
 				tent.update(true);
 				mmddat.models.Add(tent.mdl);
@@ -8850,9 +9116,11 @@ namespace UN11
 			}
 			vddat.geometryDrawDatas.Add(msddat);
 			
+			/*
 			UN11.ManySpriteDrawData msddat2 = new UN11.ManySpriteDrawData(smoke, UN11.SpriteDrawFlags.depthDefault);
 			msddat2.sDats = msddat.sDats;
 			vddat.geometryDrawDatas.Add(msddat2);
+			*/
 			// TODO: sort out sprite light
 			//
 			
