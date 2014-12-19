@@ -52,6 +52,15 @@ struct VS_Output_Over
 	float4 altPos : TEXCOORD1;
 };
 
+struct VS_Output_Water
+{
+	float4 pos : SV_POSITION;
+	float2 txc : TEXCOORD0;
+	float4 waterReflectPos : TEXCOORD1;
+	float4 waterRefractPos : TEXCOORD2;
+	float4 altPos : TEXCOORD3;
+};
+
 struct PS_Output
 {
 	float4 col : SV_TARGET;
@@ -895,6 +904,79 @@ PS_Output PShade_Sprite(VS_Output_Tex inp)
 
 	outp.col *= alphaPreserve;
 	outp.col.w = alphaPreserve;
+
+	return outp;
+}
+
+
+
+
+
+// water
+
+VS_Output_Water VShade_Tex_Water(VS_Input_Tex inp)
+{
+	VS_Output_Water outp = (VS_Output_Water)0;
+	inp.pos = mul(inp.pos, transarr[inp.tti]);
+	inp.nrm = mul(inp.nrm, transarr[inp.tti]);
+
+	outp.pos = mul(inp.pos, viewProj);
+
+	outp.altPos = inp.pos;
+	//NO!outp.altPos.z = outp.altPos.z * outp.altPos.w / farDepth;
+	outp.waterReflectPos = mul(inp.pos, mats[0]);
+	outp.waterReflectPos.z = outp.waterReflectPos.z * outp.waterReflectPos.w / farDepth;
+	outp.waterRefractPos = mul(inp.pos, mats[1]);
+	outp.waterRefractPos.z = outp.waterRefractPos.z * outp.waterRefractPos.w / farDepth;
+	outp.txc = inp.txc;
+
+	return outp;
+}
+
+PS_Output PShade_Tex_Water(VS_Output_Water inp)
+{
+	// bodge
+	//float ticker = 0;
+
+	PS_Output outp = (PS_Output)0;
+	//float wNum = inp.altPos.w;
+
+	//inp.txc.x += ticker * 0.1;
+	//inp.txc.y += sin(ticker * 0.1);
+	float4 rippleDat = tex.Sample(linearBorderSampler, inp.txc);
+
+	//inp.altPos = mul(inp.altPos, vpMat);
+	/*float2 tcoords = float2(inp.altPos.x + rippleDat.x * 500 - 250, inp.altPos.y + rippleDat.y * 500 - 250);
+
+	tcoords.x /= wNum;
+	tcoords.y /= wNum;
+
+	tcoords.x *= targTexData.z;
+	tcoords.y *= targTexData.w;
+
+	tcoords.x += targTexData.x;
+	tcoords.y += targTexData.y;
+
+	tcoords.x = 1 - tcoords.x;
+	// get front colour
+	outp.col = tex2D(texSampler, tcoords);*/
+
+	float2 waterReflectTexCoords;
+	waterReflectTexCoords.x = (inp.waterReflectPos.x / inp.waterReflectPos.w) / 2.0 + 0.5;
+	waterReflectTexCoords.y = -(inp.waterReflectPos.y / inp.waterReflectPos.w) / 2.0 + 0.5;
+	//waterReflectTexCoords.x += (rippleDat.x - 0.5) * 2.0 * 0.02;
+	//waterReflectTexCoords.y += (rippleDat.y - 0.5) * 2.0 * 0.02;
+	outp.col = tex0.Sample(nonMipLinearBorderSampler, waterReflectTexCoords) * 0.4;
+
+	float2 waterRefractTexCoords;
+	waterRefractTexCoords.x = (inp.waterRefractPos.x / inp.waterRefractPos.w) / 2.0 + 0.5;
+	waterRefractTexCoords.y = -(inp.waterRefractPos.y / inp.waterRefractPos.w) / 2.0 + 0.5;
+	//waterRefractTexCoords.x -= (rippleDat.x - 0.5) * 2.0 * 0.02;
+	//waterRefractTexCoords.y -= (rippleDat.y - 0.5) * 2.0 * 0.02;
+	outp.col += tex1.Sample(nonMipLinearBorderSampler, waterRefractTexCoords) * 0.6 * colMod;
+
+	// flat alpha
+	outp.col.w = 1;
 
 	return outp;
 }

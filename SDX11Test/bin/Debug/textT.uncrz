@@ -85,3 +85,11 @@ tech simpleTex_test
 vertex PCT
 pass vs_4_0 VShade_Tex_Test ps_4_0 PShade_Tex_Test
 end tech
+
+
+// water techniques
+
+tech simpleTex_water
+vertex PCT
+pass vs_4_0 VShade_Tex_Water ps_4_0 PShade_Tex_Water
+end tech

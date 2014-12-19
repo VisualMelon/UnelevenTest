@@ -29567,14 +29567,15 @@ sec water
 shader_dx9 un_shade.fx
 
 pretty colour
-colmod 0.243137 0.6 0.87451 0.5
-technique simpleTex_alpha
-technique_lit simpleTex_alpha_lit
-technique_decal simple_decal
-technique_dyndecal simpleTex_dynamicdecal
-technique_over simpleSideOver
-texture white.png
-lighting full
+colmod 0.243137 0.6 0.87451 1
+//colmod 1 1 1 1
+technique simpleTex_water
+texture ripples.png
+texture0 view_main_under
+texture1 view_main_over
+mat 0 view_main_under_viewprojvp
+mat 1 view_main_over_viewprojvp
+lighting none
 dyndecals nodraw
 alpha none
 end pretty

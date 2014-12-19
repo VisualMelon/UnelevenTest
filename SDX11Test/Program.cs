@@ -1675,7 +1675,7 @@ namespace UN11
 		public struct MatrixCData
 		{
 			public const int defaultSlot = 5;
-			public const int maxMats = 120;
+			public const int maxMats = 30;
 			
 			[FieldOffsetAttribute(0)]
 			public Matrix mat0;
@@ -3140,9 +3140,9 @@ namespace UN11
 				matBuffer.applyPStage(context);
 			}
 			
-			public unsafe void setValues(int matOffet, NamedMatrix[] namedMats)
+			public unsafe void setValues(int matOffset, NamedMatrix[] namedMats)
 			{
-				if (matOffet < 0 || matOffet + namedMats.Length > MatrixCData.maxMats)
+				if (matOffset < 0 || matOffset + namedMats.Length > MatrixCData.maxMats)
 					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
 				
 				fixed (Matrix* matPtr = &matBuffer.data.mat0)
@@ -3152,21 +3152,21 @@ namespace UN11
 						NamedMatrix nmat = namedMats[i];
 						
 						if (nmat != null)
-							matPtr[matOffet + i] = nmat.mat;
+							matPtr[matOffset + i] = nmat.getTranspose();
 					}
 				}
 			}
 			
-			public unsafe void setValues(int matOffet, Matrix[] mats)
+			public unsafe void setLiteralValues(int matOffset, Matrix[] mats)
 			{
-				if (matOffet < 0 || matOffet + mats.Length > MatrixCData.maxMats)
+				if (matOffset < 0 || matOffset + mats.Length > MatrixCData.maxMats)
 					throw new BloominEckException("You tryin' t' buffer overrun or summin'?");
 				
 				fixed (Matrix* matPtr = &matBuffer.data.mat0)
 				{
 					for (int i = 0; i < mats.Length; i++)
 					{
-						matPtr[matOffet + i] = mats[i];
+						matPtr[matOffset + i] = mats[i];
 					}
 				}
 			}
@@ -5561,6 +5561,11 @@ namespace UN11
 			{
 				mat = matN;
 			}
+			
+			public Matrix getTranspose()
+			{
+				return Matrix.Transpose(mat);
+			}
 		}
 		
 		// events
@@ -6359,7 +6364,7 @@ namespace UN11
 				
 //					effect.setcolMod((float*)&colMod);
 //					effect.setViewProj(&idMat);
-				// effect.setTicker(ticker); would be nice to have this information
+				// effect.setTicker(ticker); would"d be nice to have this information
 				
 //					if (clcUseTexData)
 //						effect.setTextureData((float*)&clcTexData.x);
@@ -6664,7 +6669,7 @@ namespace UN11
 				dir = Vector3.UnitX;
 				up = Vector3.UnitY;
 				
-				matrices.Set(viewProjVP = new NamedMatrix(name + "_viewproj"));
+				matrices.Set(viewProjVP = new NamedMatrix(name + "_viewprojvp"));
 				matrices.Set(viewProjTex = new NamedMatrix(name + "_viewprojtex"));
 				
 				eyeBuffer = new ConstBuffer<EyeCData>(device, EyeCData.defaultSlot);
@@ -6732,6 +6737,23 @@ namespace UN11
 			public void dirNormalAt(Vector3 targ)
 			{
 				dir = Vector3.Normalize(Vector3.Subtract(targ, pos));
+			}
+			
+			public void copy(Eye oe)
+			{
+				pos = oe.pos;
+				dir = oe.dir;
+				up = oe.up;
+			}
+			
+			// not convinced this works...
+			public void mirror(Vector3 p, Vector3 nrm)
+			{
+				Vector3.Reflect(ref up, ref nrm, out up);
+				Vector3.Reflect(ref dir, ref nrm, out dir);
+				Vector3.Reflect(ref pos, ref nrm, out pos);
+				pos += p * 2;
+				//pos = p * 2 - pos;
 			}
 		}
 		
@@ -7926,7 +7948,7 @@ namespace UN11
 										vPCs[lpt.index] = ov;
 									}
 									
-									// TODO: IMPLEMENT/PORT ME!!
+									// TODO: IMPLEMENT/PORTdisa ME!!
 									//if (!manualNormals)
 									//	autoGenNormals((void*)&vPCs.front(), (short*)&indices.front(), vPCs.size(), indices.size(), VX_PC, nrmVis);
 									
@@ -8762,12 +8784,16 @@ namespace UN11
 		UN11.Cube cube;
 		UN11.Lines lines;
 		UN11.View view;
+		UN11.View viewOver;
+		UN11.View viewUnder;
 		UN11.Over over;
 		UN11.Face face;
 		UN11.Light sun;
 		UN11.Light torch;
 		UN11.ViewElem telem;
 		UN11.ViewDrawData vddat;
+		UN11.ViewDrawData voddat;
+		UN11.ViewDrawData vuddat;
 		UN11.OverDrawData oddat;
 		UN11.FaceDrawData cddat;
 		UN11.LightDrawData tddat;
@@ -8830,6 +8856,8 @@ namespace UN11
 			
 			// create slides (do this before loading stuff, otherwise they can't see the mats/textures)
 			view = new UN11.View(device, "main", uneleven.matrices, uneleven.textures);
+			viewOver = new UN11.View(device, "main_over", uneleven.matrices, uneleven.textures);
+			viewUnder = new UN11.View(device, "main_under", uneleven.matrices, uneleven.textures);
 			over = new UN11.Over(device, "main", uneleven.textures);
 			face = new UN11.Face(device, "main");
 			sun = new UN11.Light(device, "sun", uneleven.matrices);
@@ -8852,6 +8880,8 @@ namespace UN11
 			ftdat = new UN11.FrameTickData();
 			fddat = new UN11.FrameDrawData();
 			vddat = new UN11.ViewDrawData(view, UN11.SceneType.Colour);
+			voddat = new UN11.ViewDrawData(viewOver, UN11.SceneType.Colour);
+			vuddat = new UN11.ViewDrawData(viewUnder, UN11.SceneType.Colour);
 			oddat = new UN11.OverDrawData(over);
 			cddat = new UN11.FaceDrawData(face, vt);
 			tddat = new UN11.LightDrawData(torch);
@@ -8859,12 +8889,21 @@ namespace UN11
 			cddat.elems.Add(telem);
 			
 			ftdat.updateable.Add(view);
+			ftdat.updateable.Add(viewOver);
+			ftdat.updateable.Add(viewUnder);
 			
 			vddat.geometryDrawDatas.Add(new UN11.CubeDrawData(cube));
 			vddat.geometryDrawDatas.Add(new UN11.LinesDrawData(lines));
+			voddat.geometryDrawDatas.Add(new UN11.CubeDrawData(cube));
+			voddat.geometryDrawDatas.Add(new UN11.LinesDrawData(lines));
 			
 			vddat.lights.Add(sun);
 			vddat.lights.Add(torch);
+			
+			//voddat.geometryDrawDatas = vddat.geometryDrawDatas; // fill this (omit water)
+			vuddat.geometryDrawDatas = voddat.geometryDrawDatas;
+			voddat.lights = vddat.lights;
+			vuddat.lights = voddat.lights;
 			
 			ftdat.updateable.Add(sun);
 			ftdat.updateable.Add(torch);
@@ -8873,13 +8912,14 @@ namespace UN11
 			ment.or.offset.Y = -15;
 			ment.update(true);
 			ment.mdl.noCull = true;
+			ftdat.updateable.Add(ment);
 			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(ment));
-			// disable water for testing
-			//vddat.geometryDrawDatas.Add(new UN11.LambdaGeometryDrawData(() => ment.mdl.getSec("water").sectionEnabled = false, new UN11.ModelEntityDrawData(ment), () => ment.mdl.getSec("water").sectionEnabled = true));
+			voddat.geometryDrawDatas.Add(new UN11.LambdaGeometryDrawData(() => ment.mdl.getSec("water").sectionEnabled = false, new UN11.ModelEntityDrawData(ment), () => ment.mdl.getSec("water").sectionEnabled = true));
 			
 			UN11.ModelEntity tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, true), "tent");
 			tent.update(true);
 			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
+			voddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
 			tddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
 			ftdat.updateable.Add(tent);
 			ftdat.animable.Add(tent.mdl);
@@ -8890,7 +8930,7 @@ namespace UN11
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
-			for (int i = 0; i < n * n / 5; i++)
+			for (int i = 0; i < n * n / 10; i++)
 			{
 				tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, false), "tent" + i);
 			again:
@@ -8906,9 +8946,9 @@ namespace UN11
 
 			againAgain:
 				UN11.Segment mts = tent.mdl.segments[0];
-				mts.or.rotation.X = rnd.NextFloat(-0.05f, 0.05f);
+				mts.or.rotation.X = rnd.NextFloat(-0.08f, 0.08f);
 				mts.or.rotation.Y = rnd.NextFloat(0, (float)Math.PI * 2.0f);
-				mts.or.rotation.Z = rnd.NextFloat(-0.05f, 0.05f);
+				mts.or.rotation.Z = rnd.NextFloat(-0.08f, 0.08f);
 				
 				if (mts.or.rotation.X * mts.or.rotation.X + mts.or.rotation.Z * mts.or.rotation.Z > 0.0025)
 					goto againAgain;
@@ -8920,6 +8960,7 @@ namespace UN11
 				//ftdat.animable.Add(tent.mdl);
 			}
 			vddat.geometryDrawDatas.Add(mmddat);
+			voddat.geometryDrawDatas.Add(mmddat);
 			tddat.geometryDrawDatas.Add(mmddat);
 			//
 			
@@ -8939,6 +8980,7 @@ namespace UN11
 				msddat.sDats.Add(temp);
 			}
 			vddat.geometryDrawDatas.Add(msddat);
+			voddat.geometryDrawDatas.Add(msddat);
 			
 			/*
 			UN11.ManySpriteDrawData msddat2 = new UN11.ManySpriteDrawData(smoke, UN11.SpriteDrawFlags.depthDefault);
@@ -8954,6 +8996,7 @@ namespace UN11
 			
 			psts = new Program.PointSpriteThings(uneleven); // hmm
 			vddat.geometryDrawDatas.Add(psts.createDDat(UN11.SpriteDrawFlags.colourDefault));
+			voddat.geometryDrawDatas.Add(psts.createDDat(UN11.SpriteDrawFlags.colourDefault));
 			
 			slts = new List<Program.SpinnyLightThing>();
 			int sltn = 8;
@@ -8965,11 +9008,16 @@ namespace UN11
 			}
 			//
 			
+			// slide dependancies
 			slideDependancies = new UN11.DependancyMapping<UN11.SlideDrawData>();
 			
 			slideDependancies.addDependancy(cddat, oddat);
 			slideDependancies.addDependancy(oddat, vddat);
 			slideDependancies.addDependancy(vddat, tddat);
+			slideDependancies.addDependancy(vddat, voddat);
+			slideDependancies.addDependancy(vddat, vuddat);
+			slideDependancies.addDependancy(voddat, tddat);
+			slideDependancies.addDependancy(vuddat, tddat);
 			
 			slideDependancies.flattenOnto(fddat.slideDrawDatas);
 			
@@ -9089,18 +9137,36 @@ namespace UN11
 				
 				vt = new UN11.ViewTrans(form.ClientSize.Width, form.ClientSize.Height, form.ClientSize.Width, form.ClientSize.Height);
 				
-				// set up view with correct aspect ratio
+				// set up view
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
 				view.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
-				//view.initTarget(renderView);
 				view.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
-				//view.initTarget(context.OutputMerger.GetRenderTargets(1)[0]);
 				view.sideTextureSet.initRender(device, Format.R32G32B32A32_Float);
-				//view.initTargetStencil(depthView);
 				view.targetTextureSet.initStencil(device);
 				view.sideTextureSet.initStencil(device);
 				view.initOverness(device);
 				view.clearColour = Color.DarkOliveGreen;
+				
+				// set up over/under views
+				int overUnderDiv = 1;
+				
+				viewOver.setDimension(form.ClientSize.Width / overUnderDiv, form.ClientSize.Height / overUnderDiv);
+				viewOver.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
+				viewOver.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				viewOver.sideTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				viewOver.targetTextureSet.initStencil(device);
+				viewOver.sideTextureSet.initStencil(device);
+				viewOver.initOverness(device);
+				viewOver.clearColour = Color.GreenYellow;
+				
+				viewUnder.setDimension(form.ClientSize.Width / overUnderDiv, form.ClientSize.Height / overUnderDiv);
+				viewUnder.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
+				viewUnder.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				viewUnder.sideTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				viewUnder.targetTextureSet.initStencil(device);
+				viewUnder.sideTextureSet.initStencil(device);
+				viewUnder.initOverness(device);
+				viewUnder.clearColour = Color.GreenYellow;
 				
 				// set up over
 				over.setDimension(view.texWidth, view.texHeight);
@@ -9151,11 +9217,26 @@ namespace UN11
 				telem.colmod = new Vector4(1f, 1f, 1f, 1f);
 				
 				// add some sub elements
-				UN11.TexElem lightViewElem = new UN11.TexElem("lightviewelem", telem, new Rectangle(0, 0, view.texWidth / 5, view.texHeight / 5));
+				int sew = view.texWidth / 5;
+				int seh = view.texHeight / 5;
+				
+				UN11.TexElem lightViewElem = new UN11.TexElem("lightviewelem", telem, new Rectangle(sew * 0, 0, sew, seh));
 				lightViewElem.texness.tex = uneleven.textures["light_torch"];
 				lightViewElem.texness.useTex = true;
 				lightViewElem.tech = uneleven.techniques["simpleFace"];
 				lightViewElem.colmod = new Vector4(1f, 1f, 1f, 1f);
+				
+				UN11.TexElem viewOverElem = new UN11.TexElem("viewoverelem", telem, new Rectangle(sew * 1, 0, sew, seh));
+				viewOverElem.texness.tex = uneleven.textures["view_main_over"];
+				viewOverElem.texness.useTex = true;
+				viewOverElem.tech = uneleven.techniques["simpleFace"];
+				viewOverElem.colmod = new Vector4(1f, 1f, 1f, 1f);
+				
+				UN11.TexElem viewUnderElem = new UN11.TexElem("viewunderelem", telem, new Rectangle(sew * 2, 0, sew, seh));
+				viewUnderElem.texness.tex = uneleven.textures["view_main_under"];
+				viewUnderElem.texness.useTex = true;
+				viewUnderElem.tech = uneleven.techniques["simpleFace"];
+				viewUnderElem.colmod = new Vector4(1f, 1f, 1f, 1f);
 				
 				// We are done resizing
 				userResized = false;
@@ -9182,6 +9263,10 @@ namespace UN11
 			
 			view.eye.pos = span;
 			view.eye.dirNormalAt(Vector3.Zero);
+			viewOver.eye.copy(view.eye);
+			viewUnder.eye.copy(view.eye);
+			viewUnder.eye.mirror(new Vector3(0, -15, 0), Vector3.UnitY);
+			
 			torch.eye.pos = span;
 			torch.eye.dirNormalAt(Vector3.Zero);
 			
