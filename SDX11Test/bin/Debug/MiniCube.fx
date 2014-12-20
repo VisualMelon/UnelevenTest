@@ -94,9 +94,11 @@ cbuffer lightBuffer : register(b1)
 
 // lightmap buffer ?
 
-cbuffer transBuffer : register(b2)
+tbuffer transBuffer : register(t12)
+//cbuffer transBuffer : register(b2)
 {
-	matrix transarr[30]; // need to be same as number of segs
+	matrix transarr[1024]; // need to be same as number of segs
+//	matrix transarr[64]; // need to be same as number of segs
 };
 
 cbuffer spriteDataBuffer : register(b2)

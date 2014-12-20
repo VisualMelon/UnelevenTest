@@ -1653,8 +1653,10 @@ namespace UN11
 		[StructLayout(LayoutKind.Explicit, Size=TransCData.maxTransMats * sizeof(float) * 16)]
 		public struct TransCData
 		{
-			public const int defaultSlot = 2;
-			public const int maxTransMats = 30;
+			public const int defaultSlot = 12;
+			//public const int defaultSlot = 2;
+			public const int maxTransMats = 1024;
+			//public const int maxTransMats = 64;
 			
 			[FieldOffsetAttribute(0)]
 			public Matrix mat0;
@@ -1799,6 +1801,76 @@ namespace UN11
 			public void applyPStage(DeviceContext context, int altSlot)
 			{
 				context.PixelShader.SetConstantBuffer(altSlot, buffer);
+			}
+			
+			public void Dispose()
+			{
+				buffer.Dispose();
+			}
+		}
+		
+		public class TextureBuffer<T> : IConstBuffering, IDisposable where T : struct
+		{
+			public T data;
+			public Buffer buffer {get; private set;}
+			public BufferDescription desc {get; private set;}
+			public int slot;
+			
+			public int elemCount {get; private set;}
+			public int elemSize {get; private set;}
+			public ShaderResourceView shaderResourceView {get; private set;}
+			
+			private void createShaderResourceView(Device device)
+			{
+				ShaderResourceViewDescription shaderResourceViewDesc = new ShaderResourceViewDescription();
+				shaderResourceViewDesc.Format = Format.R32G32B32A32_Float;
+				shaderResourceViewDesc.Dimension = ShaderResourceViewDimension.Buffer;
+				shaderResourceViewDesc.Buffer.ElementOffset = 0;
+				shaderResourceViewDesc.Buffer.ElementCount = elemCount;
+				shaderResourceViewDesc.Buffer.ElementWidth = elemSize;
+				shaderResourceViewDesc.Buffer.FirstElement = 0;
+				
+				shaderResourceView = new ShaderResourceView(device, buffer, shaderResourceViewDesc);
+			}
+			
+			/// <summary>
+			/// Create a const buffer which will create a buffer description based on the size of T
+			/// </summary>
+			public TextureBuffer(Device device, int slotN, int elemSizeN, int elemCountN)
+			{
+				data = new T();
+				slot = slotN;
+				desc = new BufferDescription(Utilities.SizeOf<T>(), ResourceUsage.Default, BindFlags.ShaderResource, CpuAccessFlags.None, ResourceOptionFlags.None, 0);
+				buffer = new Buffer(device, desc);
+			
+				elemSize = elemSizeN;
+				elemCount = elemCountN;
+				createShaderResourceView(device);
+			}
+			
+			public void update(DeviceContext context)
+			{
+				context.UpdateSubresource(ref data, buffer);
+			}
+			
+			public void applyVStage(DeviceContext context)
+			{
+				context.VertexShader.SetShaderResource(slot, shaderResourceView);
+			}
+			
+			public void applyVStage(DeviceContext context, int altSlot)
+			{
+				context.VertexShader.SetShaderResource(altSlot, shaderResourceView);
+			}
+			
+			public void applyPStage(DeviceContext context)
+			{
+				context.PixelShader.SetShaderResource(slot, shaderResourceView);
+			}
+			
+			public void applyPStage(DeviceContext context, int altSlot)
+			{
+				context.PixelShader.SetShaderResource(altSlot, shaderResourceView);
 			}
 			
 			public void Dispose()
@@ -3174,11 +3246,14 @@ namespace UN11
 		
 		public class TransArrBuffer
 		{
-			ConstBuffer<TransCData> transBuffer;
+			TextureBuffer<TransCData> transBuffer;
+			//ConstBuffer<TransCData> transBuffer;
 			
 			public TransArrBuffer(Device device)
 			{
-				transBuffer = new ConstBuffer<TransCData>(device, TransCData.defaultSlot);
+				// TODO: tidy this up, somehow
+				transBuffer = new TextureBuffer<TransCData>(device, TransCData.defaultSlot, 4, TransCData.maxTransMats);
+				//transBuffer = new ConstBuffer<TransCData>(device, TransCData.defaultSlot);
 			}
 			
 			public unsafe void update(DeviceContext context)
@@ -6751,8 +6826,9 @@ namespace UN11
 			{
 				Vector3.Reflect(ref up, ref nrm, out up);
 				Vector3.Reflect(ref dir, ref nrm, out dir);
+				pos -= p;
 				Vector3.Reflect(ref pos, ref nrm, out pos);
-				pos += p * 2;
+				pos += p;
 				//pos = p * 2 - pos;
 			}
 		}

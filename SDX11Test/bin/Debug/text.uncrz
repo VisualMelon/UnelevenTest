@@ -3,7 +3,7 @@ mdl tree0
 
 vertex PCT
 manualnormals
-batchcopies 10
+batchcopies 64
 
 
 seg tree
