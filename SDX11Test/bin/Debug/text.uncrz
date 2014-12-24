@@ -4,11 +4,12 @@ mdl tree0
 vertex PCT
 manualnormals
 batchcopies 64
+transarrbuffers compound
 
 
 seg tree
 
-offset 0 0.5 0
+offset 0 0 0
 rotation 0 0 0
 
 

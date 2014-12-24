@@ -1667,7 +1667,7 @@ namespace UN11
 		public struct SpriteDataCData
 		{
 			public const int defaultSlot = 2;
-			public const int maxSize = 120;
+			public const int maxSize = 120; // 256
 			
 			[FieldOffsetAttribute(0)]
 			public Vector4 vec0;
@@ -2660,8 +2660,8 @@ namespace UN11
 			
 			public void invTrans(ref Matrix mat)
 			{
-				Matrix.Multiply(ref rotationMatrix, ref mat, out mat);
-				Matrix.Multiply(ref offsetMatrix, ref mat, out mat);
+				Matrix.Multiply(ref rotationMatrixInv, ref mat, out mat);
+				Matrix.Multiply(ref offsetMatrixInv, ref mat, out mat);
 			}
 			
 			public void updateMatrices()
@@ -3387,6 +3387,13 @@ namespace UN11
 					return count == 0;
 				}
 			}
+		}
+		
+		public enum ModelTransArrBuffers
+		{
+			Individual = 1,
+			Compound = 2,
+			Both = 3
 		}
 		
 		public class TransArr
@@ -4902,6 +4909,7 @@ namespace UN11
 			public int numVertices;
 			public int numIndices;
 			
+			public ModelTransArrBuffers transArrBuffers;
 			public TransArr transArr;
 			public TransArrBuffer transArrBuffer; // these are NOT shared
 			public CompoundTransArrBuffer compoundTransArrBuffer; // these are shared
@@ -4955,6 +4963,8 @@ namespace UN11
 				}
 				
 				batchCopies = gin.batchCopies;
+				transArrBuffers = gin.transArrBuffers;
+				
 				vbuff = gin.vbuff;
 				vbuffBinding = gin.vbuffBinding;
 				ibuff = gin.ibuff;
@@ -4968,10 +4978,7 @@ namespace UN11
 				noCull = gin.noCull;
 				highTti = gin.highTti;
 				
-				transArr = new TransArr();
-				transArrBuffer = new TransArrBuffer(device);
-				compoundTransArrBuffer = gin.compoundTransArrBuffer;
-				transArr.create(highTti + 1);
+				createTransArrBuffers(gin, device);
 				createSegmentBoxes();
 			}
 			
@@ -5028,6 +5035,42 @@ namespace UN11
 				}
 				
 				return -1;
+			}
+			
+			// changes buffers and changes transArrBuffers
+			public void createTransArrBuffers(Device device, ModelTransArrBuffers transArrBuffersN)
+			{
+				transArr = new TransArr();
+				transArr.create(highTti + 1);
+				
+				if ((transArrBuffers & ModelTransArrBuffers.Individual) == 0 && (transArrBuffersN & ModelTransArrBuffers.Individual) > 0)
+					transArrBuffer = new TransArrBuffer(device);
+				if ((transArrBuffers & ModelTransArrBuffers.Compound) == 0 && (transArrBuffersN & ModelTransArrBuffers.Compound) > 0)
+					compoundTransArrBuffer = new CompoundTransArrBuffer(device, batchCopies, highTti + 1);
+				
+				transArrBuffers = transArrBuffersN;
+			}
+			
+			public void createTransArrBuffers(Device device)
+			{
+				transArr = new TransArr();
+				transArr.create(highTti + 1);
+				
+				if ((transArrBuffers & ModelTransArrBuffers.Individual) > 0)
+					transArrBuffer = new TransArrBuffer(device);
+				if ((transArrBuffers & ModelTransArrBuffers.Compound) > 0)
+					compoundTransArrBuffer = new CompoundTransArrBuffer(device, batchCopies, highTti + 1);
+			}
+			
+			private void createTransArrBuffers(Model gin, Device device)
+			{
+				transArr = new TransArr();
+				transArr.create(highTti + 1);
+				
+				if ((transArrBuffers & ModelTransArrBuffers.Individual) > 0)
+					transArrBuffer = new TransArrBuffer(device);
+				if ((transArrBuffers & ModelTransArrBuffers.Compound) > 0)
+					compoundTransArrBuffer = gin.compoundTransArrBuffer;
 			}
 			
 			public void createSegmentBoxes()
@@ -5091,9 +5134,8 @@ namespace UN11
 					seg.update(ref trans, transArr);
 				}
 				
-				transArr.setValue(0, ref trans);
-				
-				transArrBuffer.setValues(0, transArr);
+				if ((transArrBuffers & ModelTransArrBuffers.Individual) > 0)
+					transArrBuffer.setValues(0, transArr); // only set this if we are using individual transArrBuffer
 				
 				// sort out bounding boxes
 				modelBox = new BBox();
@@ -8059,10 +8101,7 @@ namespace UN11
 								latePlaceTtis.Clear();
 								
 								// finish up
-								curModel.transArr = new TransArr();
-								curModel.transArrBuffer = new TransArrBuffer(device);
-								curModel.compoundTransArrBuffer = new CompoundTransArrBuffer(device, curModel.batchCopies, curModel.highTti + 1);
-								curModel.transArr.create(curModel.highTti + 1);
+								curModel.createTransArrBuffers(device);
 								curModel.createSegmentBoxes();
 								models.Add(curModel);
 								
@@ -8099,6 +8138,9 @@ namespace UN11
 						{
 							curModel = new Model(data[1]);
 							nextTti = 0;
+							
+							// defaults
+							curModel.transArrBuffers = ModelTransArrBuffers.Both;
 							curModel.batchCopies = 1;
 						}
 						else if (data[0] == "blend")
@@ -8162,6 +8204,15 @@ namespace UN11
 						else if (data[0] == "batchcopies")
 						{
 							curModel.batchCopies = int.Parse(data[1]);
+						}
+						else if (data[0] == "transarrbuffers")
+						{
+							if (data[1] == "both")
+								curModel.transArrBuffers = ModelTransArrBuffers.Both;
+							else if (data[1] == "individual")
+								curModel.transArrBuffers = ModelTransArrBuffers.Individual;
+							else if (data[1] == "compound")
+								curModel.transArrBuffers = ModelTransArrBuffers.Compound;
 						}
 						else if (data[0] == "animclasses")
 						{
@@ -8993,12 +9044,14 @@ namespace UN11
 			voddat.geometryDrawDatas.Add(new UN11.LambdaGeometryDrawData(() => ment.mdl.getSec("water").sectionEnabled = false, new UN11.ModelEntityDrawData(ment), () => ment.mdl.getSec("water").sectionEnabled = true));
 			
 			UN11.ModelEntity tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, true), "tent");
+			tent.mdl.createTransArrBuffers(device, UN11.ModelTransArrBuffers.Individual);
 			tent.update(true);
 			vddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
 			voddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
 			tddat.geometryDrawDatas.Add(new UN11.ModelEntityDrawData(tent));
 			ftdat.updateable.Add(tent);
 			ftdat.animable.Add(tent.mdl);
+			tent.or.offset.Y = 1;
 			tent.mdl.changeAnim(uneleven.anims["tree_spin"]);
 			
 			// lots of trees?!
