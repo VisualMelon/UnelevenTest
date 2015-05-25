@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
 using SharpDX;
@@ -23,6 +24,10 @@ using float3 = SharpDX.Vector3;
 using float4 = SharpDX.Vector4;
 using matrix = SharpDX.Matrix;
 
+
+
+
+
 namespace UN11
 {
 	public class UN11
@@ -31,6 +36,18 @@ namespace UN11
 		
 		public static class Utils
 		{
+			public static string getFileSum(string fname)
+			{
+				// from http://stackoverflow.com/a/10520086/383598
+				using (var md5 = System.Security.Cryptography.MD5.Create())
+				{
+				    using (var stream = System.IO.File.OpenRead(fname))
+				    {
+				    	return BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "");
+				    }
+				}
+			}
+			
 			public static void copy<T>(int si, T[] src, int di, T[] dst, int count)
 			{
 				for (int i = 0; i < count; i++)
@@ -943,12 +960,47 @@ namespace UN11
 			
 			public ShaderBytecode loadShaderBytecode(ShaderBytecodeDesc desc)
 			{
+				return loadShaderBytecode(desc, null);
+			}
+			
+			public ShaderBytecode loadShaderBytecode(ShaderBytecodeDesc desc, string cacheDir)
+			{
 				ShaderBytecode temp;
 				if (!bytecodes.TryGetValue(desc, out temp))
 				{
+					if (cacheDir != null)
+					{
+						// try to read from cache
+						string dataFile = System.IO.Path.Combine(cacheDir, desc.fileName + "_" + desc.shaderName + "_data.dat");
+						string hashFile = System.IO.Path.Combine(cacheDir, desc.fileName + "_" + desc.shaderName + "_hash.txt");
+						
+						if (System.IO.File.Exists(dataFile) &&
+						    System.IO.File.Exists(hashFile) &&
+						    System.IO.File.ReadAllText(hashFile) == Utils.getFileSum(desc.fileName))
+						{
+							// read from cache
+							temp = ShaderBytecode.FromFile(dataFile);
+							bytecodes[desc] = temp;
+							
+							goto done;
+						}
+					}
+					
 					temp = ShaderBytecode.CompileFromFile(desc.fileName, desc.shaderName, desc.profile);
 					bytecodes[desc] = temp;
+					
+					if (cacheDir != null)
+					{
+						// cache it
+						string dataFile = System.IO.Path.Combine(cacheDir, desc.fileName + "_" + desc.shaderName + "_data.dat");
+						string hashFile = System.IO.Path.Combine(cacheDir, desc.fileName + "_" + desc.shaderName + "_hash.txt");
+						
+						temp.Save(dataFile);
+						System.IO.File.WriteAllText(hashFile, Utils.getFileSum(desc.fileName));
+					}
 				}
+				
+			done:
 				return temp;
 			}
 			
@@ -1279,13 +1331,13 @@ namespace UN11
 			private PixelShader pshade;
 			private ShaderBytecode pshadeBytecode;
 			
-			public Pass(Device device, VertexType vertexTypeN, ShaderBytecodeDesc vshadeDescN, ShaderBytecodeDesc pshadeDescN, ShaderBytecodeCollection bytecodes)
+			public Pass(Device device, VertexType vertexTypeN, ShaderBytecodeDesc vshadeDescN, ShaderBytecodeDesc pshadeDescN, ShaderBytecodeCollection bytecodes, string cacheDir)
 			{
 				vshadeDesc = vshadeDescN;
 				pshadeDesc = pshadeDescN;
 				
-				vshadeBytecode = bytecodes.loadShaderBytecode(vshadeDescN);
-				pshadeBytecode = bytecodes.loadShaderBytecode(pshadeDescN);
+				vshadeBytecode = bytecodes.loadShaderBytecode(vshadeDescN, cacheDir);
+				pshadeBytecode = bytecodes.loadShaderBytecode(pshadeDescN, cacheDir);
 				
 				vshade = new VertexShader(device, vshadeBytecode);
 				pshade = new PixelShader(device, pshadeBytecode);
@@ -1842,7 +1894,7 @@ namespace UN11
 				slot = slotN;
 				desc = new BufferDescription(Utilities.SizeOf<T>(), ResourceUsage.Default, BindFlags.ShaderResource, CpuAccessFlags.None, ResourceOptionFlags.None, 0);
 				buffer = new Buffer(device, desc);
-			
+				
 				elemSize = elemSizeN;
 				elemCount = elemCountN;
 				createShaderResourceView(device);
@@ -2467,7 +2519,7 @@ namespace UN11
 				{
 					if (m.curDrawCull)
 						continue;
-						
+					
 					if (mmddat.useOwnSections)
 					{
 						Section msec = m.sections[secIndex];
@@ -2502,7 +2554,7 @@ namespace UN11
 						{
 							if (m.curDrawCull || l.canSkip(m.modelBox))
 								continue;
-					
+							
 							if (mmddat.useOwnSections)
 							{
 								Section msec = m.sections[secIndex];
@@ -3799,7 +3851,7 @@ namespace UN11
 						compoundSpriteDataArrBuffer.zeroNuts(context, primatives.drawPrims);
 					}
 				}
-			
+				
 			}
 		}
 		
@@ -3869,7 +3921,7 @@ namespace UN11
 				vPCTs.Add(new VertexPCT(new VertexPC(new Vector4(1, -1, 1, 0), new Vector4(1, 1, 1, 1), 0), 1, 0));
 				vPCTs.Add(new VertexPCT(new VertexPC(new Vector4(1, 1, 1, 0), new Vector4(1, 1, 1, 1), 0), 1, 1));
 				vPCTs.Add(new VertexPCT(new VertexPC(new Vector4(-1, 1, 1, 0), new Vector4(1, 1, 1, 1), 0), 0, 1));
-		
+				
 				indicies.Add((short)0);
 				indicies.Add((short)1);
 				indicies.Add((short)2);
@@ -4235,49 +4287,49 @@ namespace UN11
 			public Cube(Device device) : base("TestCube")
 			{
 				vbuff = Buffer.Create(device, BindFlags.VertexBuffer, new UN11.VertexPC[]
-									  {
-									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)), // Front
-									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
-									  	
-									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)), // BACK
-									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
-									  	
-									  	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)), // Top
-									  	new UN11.VertexPC(new Vector4(-1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
-									  	
-									  	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)), // Bottom
-									  	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
-									  	
-									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)), // Left
-									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
-									  	
-									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)), // Right
-									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-									  	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
-									  });
+				                      {
+				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)), // Front
+				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+				                      	
+				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)), // BACK
+				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f)),
+				                      	
+				                      	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)), // Top
+				                      	new UN11.VertexPC(new Vector4(-1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f, 1.0f,  1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f, 1.0f, -1.0f,  1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f)),
+				                      	
+				                      	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)), // Bottom
+				                      	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f,-1.0f, -1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f,-1.0f,  1.0f,  1.0f), new Vector4(1.0f, 1.0f, 0.0f, 1.0f)),
+				                      	
+				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)), // Left
+				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f, -1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f,  1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4(-1.0f,  1.0f, -1.0f, 1.0f), new Vector4(1.0f, 0.0f, 1.0f, 1.0f)),
+				                      	
+				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)), // Right
+				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f, -1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f, -1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+				                      	new UN11.VertexPC(new Vector4( 1.0f,  1.0f,  1.0f, 1.0f), new Vector4(0.0f, 1.0f, 1.0f, 1.0f)),
+				                      });
 				
 				vbuffBinding = new VertexBufferBinding(vbuff, UN11.VertexPC.size, 0);
 			}
@@ -4518,7 +4570,7 @@ namespace UN11
 				
 				private OffsetAct(OffsetAct gin) : base(gin)
 				{
-					dest = gin.dest;	
+					dest = gin.dest;
 				}
 				
 				public override Act bake(Model mdl)
@@ -4732,7 +4784,7 @@ namespace UN11
 				private Flow(Flow gin, Model mdl) : this(gin.name)
 				{
 					motions = new MotionList();
-				
+					
 					foreach (Motion m in gin.motions)
 					{
 						motions.Add(m.bake(mdl));
@@ -4876,7 +4928,7 @@ namespace UN11
 					anim = a.bake(mdl);
 				}
 			}
-				
+			
 			public void run(float step)
 			{
 				if (anim == null)
@@ -5463,7 +5515,7 @@ namespace UN11
 						}
 						else if (tempDist < bestDist)
 						{
-								bestDist = tempDist;
+							bestDist = tempDist;
 						}
 					}
 				}
@@ -5508,7 +5560,7 @@ namespace UN11
 						}
 						else if (tempDist < bestDist)
 						{
-								bestDist = tempDist;
+							bestDist = tempDist;
 						}
 					}
 				}
@@ -6856,11 +6908,26 @@ namespace UN11
 				dir = Vector3.Normalize(Vector3.Subtract(targ, pos));
 			}
 			
-			public void copy(Eye oe)
+			public void copyProjection(Eye oe)
+			{
+				mode = oe.mode;
+				dimX = oe.dimX;
+				dimY = oe.dimY;
+				projectionNear = oe.projectionNear;
+				projectionFar = oe.projectionFar;
+			}
+			
+			public void copyView(Eye oe)
 			{
 				pos = oe.pos;
 				dir = oe.dir;
 				up = oe.up;
+			}
+			
+			public void copy(Eye oe)
+			{
+				copyProjection(oe);
+				copyView(oe);
 			}
 			
 			// not convinced this works...
@@ -7112,7 +7179,7 @@ namespace UN11
 				lightBuffer.data.lightAmbient = lightAmbient;
 				lightBuffer.data.lightColMod = lightColMod;
 				lightBuffer.data.lightDepth = lightDepth;
-				lightBuffer.data.lightDodge = 0.011f; // HACK: help
+				lightBuffer.data.lightDodge = 0.0011f; // HACK: help
 				lightBuffer.data.lightCoof = 1.0f; // HACK: are we removing this?
 				lightBuffer.data.lightType = (float)lightType;
 			}
@@ -7130,7 +7197,7 @@ namespace UN11
 				lightMapBuffer.data.lightAmbient = lightAmbient;
 				lightMapBuffer.data.lightColMod = lightColMod;
 				lightMapBuffer.data.lightDepth = lightDepth;
-				lightMapBuffer.data.lightDodge = 0.011f; // HACK: help
+				lightMapBuffer.data.lightDodge = 0.0011f; // HACK: help
 				lightMapBuffer.data.lightCoof = 1.0f; // HACK: are we removing this?
 				lightMapBuffer.data.lightType = (float)lightType;
 			}
@@ -7149,12 +7216,12 @@ namespace UN11
 			}
 			
 			public void update()
-			{			
+			{
 				if (useLightMap)
 					eye.update(vp);
 				else
 					eye.updateMatsOnly();
-						
+				
 				updateBox();
 				
 				updateLightCData();
@@ -7512,6 +7579,14 @@ namespace UN11
 		
 		// UN11ness
 		
+		// booooring
+		public TextWriter logWriter = System.Console.Out;
+		
+		private void log(string str)
+		{
+			logWriter.WriteLine(str);
+		}
+		
 		// stuff what is loaded
 		public ShaderBytecodeCollection bytecodes = new ShaderBytecodeCollection();
 		public TechniqueCollection techniques = new TechniqueCollection();
@@ -7550,7 +7625,7 @@ namespace UN11
 			samplerStates.pointBorder.Apply(context, (int)SamplerSlot.pointBorder);
 			samplerStates.linearMirror.Apply(context, (int)SamplerSlot.linearMirror);
 			samplerStates.pointMirror.Apply(context, (int)SamplerSlot.pointMirror);
-		
+			
 			samplerStates.nonMipLinearBorder.Apply(context, (int)SamplerSlot.nonMipLinearBorder);
 		}
 		
@@ -7638,9 +7713,9 @@ namespace UN11
 			return bytecodes.loadShaderBytecode(fileName, shaderName, shaderFlags);
 		}
 		
-		public Technique createTechnique(string name, VertexType vertexTypeN, ShaderBytecodeDesc vshadeDescN, ShaderBytecodeDesc pshadeDescN)
+		public Technique createTechnique(string name, VertexType vertexTypeN, ShaderBytecodeDesc vshadeDescN, ShaderBytecodeDesc pshadeDescN, string cacheDir)
 		{
-			return createTechnique(name, vertexTypeN, new ShaderBytecodeDesc[] { vshadeDescN }, new ShaderBytecodeDesc[] { pshadeDescN });
+			return createTechnique(name, vertexTypeN, new ShaderBytecodeDesc[] { vshadeDescN }, new ShaderBytecodeDesc[] { pshadeDescN }, cacheDir);
 		}
 		
 		/// <summary>
@@ -7670,12 +7745,23 @@ namespace UN11
 		}
 		
 		public delegate void FileParsingExceptionThrower(string msg);
+		public bool allowTechniqueCaching = true;
 		
 		/// <summary>
 		/// Loads all the techniques from a given file into the given context
 		/// </summary>
 		public void loadTechniquesFromFile(string fileName)
 		{
+			string cacheDir = fileName + "_techcache";
+			
+			if (allowTechniqueCaching)
+			{
+				if (!System.IO.Directory.Exists(cacheDir))
+				{
+					System.IO.Directory.CreateDirectory(cacheDir);
+				}
+			}
+			
 			VertexType vertexType = VertexType.VertexPC;
 			
 			string curName = null;
@@ -7712,7 +7798,7 @@ namespace UN11
 						{
 							if (data[1] == "tech")
 							{
-								createTechnique(curName, vertexType, vsList.ToArray(), psList.ToArray());
+								createTechnique(curName, vertexType, vsList.ToArray(), psList.ToArray(), cacheDir);
 								vsList.Clear();
 								psList.Clear();
 							}
@@ -8607,12 +8693,12 @@ namespace UN11
 						{
 							switch (data[1])
 							{
-							case "pos0":
-								curSprite.layout.Position0 = new Vec4Offset(int.Parse(data[2]));
-								break;
-							case "oth0":
-								curSprite.layout.Other0 = new Vec4Offset(int.Parse(data[2]));
-								break;
+								case "pos0":
+									curSprite.layout.Position0 = new Vec4Offset(int.Parse(data[2]));
+									break;
+								case "oth0":
+									curSprite.layout.Other0 = new Vec4Offset(int.Parse(data[2]));
+									break;
 							}
 						}
 						else if (data[0] == "techniques_dx11")
@@ -8738,18 +8824,18 @@ namespace UN11
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine("Error loading texture \"" + name + "\"");
-				Console.WriteLine(ex.Message);
+				log("Error loading texture \"" + name + "\"");
+				log(ex.Message);
 				return null;
 			}
 		}
 		
-		public Technique createTechnique(string name, VertexType vertexTypeN, ShaderBytecodeDesc[] vshadeDescN, ShaderBytecodeDesc[] pshadeDescN)
+		public Technique createTechnique(string name, VertexType vertexTypeN, ShaderBytecodeDesc[] vshadeDescN, ShaderBytecodeDesc[] pshadeDescN, string cacheDir)
 		{
 			Technique temp = new Technique(name);
 			for (int i = 0; i < vshadeDescN.Length; i++)
 			{
-				Pass p = new Pass(device, vertexTypeN, vshadeDescN[i], pshadeDescN[i], bytecodes);
+				Pass p = new Pass(device, vertexTypeN, vshadeDescN[i], pshadeDescN[i], bytecodes, cacheDir);
 				temp.passes.Add(p);
 			}
 			techniques.Set(temp);
@@ -8763,7 +8849,14 @@ namespace UN11
 	internal class Program
 	{
 		private static Random rnd = new Random();
-			
+		
+		private TextWriter logWriter = System.Console.Out;
+		
+		private void log(string str)
+		{
+			logWriter.WriteLine(str);
+		}
+		
 		//	  [STAThread]
 		private static void Main()
 		{
@@ -8917,6 +9010,7 @@ namespace UN11
 		UN11.Face face;
 		UN11.Light sun;
 		UN11.Light torch;
+		UN11.Light torch2;
 		UN11.ViewElem telem;
 		UN11.ViewDrawData vddat;
 		UN11.ViewDrawData voddat;
@@ -8924,6 +9018,7 @@ namespace UN11
 		UN11.OverDrawData oddat;
 		UN11.FaceDrawData cddat;
 		UN11.LightDrawData tddat;
+		UN11.LightDrawData t2ddat;
 		UN11.FrameDrawData fddat;
 		UN11.FrameTickData ftdat;
 		UN11.ManyModelDrawData mmddat;
@@ -8957,7 +9052,7 @@ namespace UN11
 				BufferCount = 1,
 				ModeDescription =
 					new ModeDescription(form.ClientSize.Width, form.ClientSize.Height,
-										new Rational(60, 1), Format.R8G8B8A8_UNorm),
+					                    new Rational(60, 1), Format.R8G8B8A8_UNorm),
 				IsWindowed = true,
 				OutputHandle = form.Handle,
 				SampleDescription = new SampleDescription(1, 0),
@@ -8972,9 +9067,11 @@ namespace UN11
 			//Configuration.ThrowOnShaderCompileError = false;
 
 			// Create Device and SwapChain
+			log("Creating Device and SwapChain");
 			Device.CreateWithSwapChain(DriverType.Hardware, DeviceCreationFlags.None, desc, out device, out swapChain);
 			context = device.ImmediateContext;
 			
+			log("Creating UN11 Instance");
 			uneleven = new UN11(device); // UN11 knows about your device!
 
 			// Ignore all windows events
@@ -8982,6 +9079,7 @@ namespace UN11
 			factory.MakeWindowAssociation(form.Handle, WindowAssociationFlags.IgnoreAll);
 			
 			// create slides (do this before loading stuff, otherwise they can't see the mats/textures)
+			log("Creating Slides");
 			view = new UN11.View(device, "main", uneleven.matrices, uneleven.textures);
 			viewOver = new UN11.View(device, "main_over", uneleven.matrices, uneleven.textures);
 			viewUnder = new UN11.View(device, "main_under", uneleven.matrices, uneleven.textures);
@@ -8989,12 +9087,19 @@ namespace UN11
 			face = new UN11.Face(device, "main");
 			sun = new UN11.Light(device, "sun", uneleven.matrices);
 			torch = new UN11.Light(device, "torch", uneleven.matrices, uneleven.textures);
+			torch2 = new UN11.Light(device, "torch2", uneleven.matrices, uneleven.textures);
 
 			// load some stuff from some files
+			log("Loading Techniques");
 			uneleven.loadTechniquesFromFile("textT.uncrz");
+			log("Loading Models");
 			uneleven.loadModelsFromFile("text.uncrz", context);
+			log("Loading Sprites");
 			uneleven.loadSpritesFromFile("textS.uncrz", context);
+			log("Loading Anims");
 			uneleven.loadAnimsFromFile("textA.uncrz", context);
+			
+			log("Some Misc Stuff");
 			
 			// face stuff
 			telem = new UN11.ViewElem("disp", null, new Rectangle(0, 0, view.texHeight, view.texHeight), view);
@@ -9004,6 +9109,7 @@ namespace UN11
 			lines = new UN11.Lines(device, 32);
 			
 			// describe frame
+			log("Creating Frame Stuff");
 			ftdat = new UN11.FrameTickData();
 			fddat = new UN11.FrameDrawData();
 			vddat = new UN11.ViewDrawData(view, UN11.SceneType.Colour);
@@ -9012,6 +9118,7 @@ namespace UN11
 			oddat = new UN11.OverDrawData(over);
 			cddat = new UN11.FaceDrawData(face, vt);
 			tddat = new UN11.LightDrawData(torch);
+			t2ddat = new UN11.LightDrawData(torch2);
 			
 			cddat.elems.Add(telem);
 			
@@ -9025,7 +9132,8 @@ namespace UN11
 			voddat.geometryDrawDatas.Add(new UN11.LinesDrawData(lines));
 			
 			vddat.lights.Add(sun);
-			vddat.lights.Add(torch);
+			//vddat.lights.Add(torch);
+			vddat.lights.Add(torch2);
 			
 			//voddat.geometryDrawDatas = vddat.geometryDrawDatas; // fill this (omit water)
 			vuddat.geometryDrawDatas = voddat.geometryDrawDatas;
@@ -9034,6 +9142,7 @@ namespace UN11
 			
 			ftdat.updateable.Add(sun);
 			ftdat.updateable.Add(torch);
+			ftdat.updateable.Add(torch2);
 			
 			UN11.ModelEntity ment = new UN11.ModelEntity(new UN11.Model(uneleven.models["map"], device, context, true), "ment");
 			ment.or.offset.Y = -15;
@@ -9055,6 +9164,7 @@ namespace UN11
 			tent.mdl.changeAnim(uneleven.anims["tree_spin"]);
 			
 			// lots of trees?!
+			log("Creating a shed load of trees....");
 			int n = 100;
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
@@ -9094,6 +9204,7 @@ namespace UN11
 			//
 			
 			// smoke!!
+			log("Seting up Smoke");
 			UN11.Sprite smoke = uneleven.sprites["smoke"];
 			ftdat.updateable.Add(smoke); // bit awkward
 			
@@ -9115,11 +9226,12 @@ namespace UN11
 			UN11.ManySpriteDrawData msddat2 = new UN11.ManySpriteDrawData(smoke, UN11.SpriteDrawFlags.depthDefault);
 			msddat2.sDats = msddat.sDats;
 			vddat.geometryDrawDatas.Add(msddat2);
-			*/
+			 */
 			// TODO: sort out sprite light
 			//
 			
 			// lpoints
+			log("Seting up LPoints");
 			UN11.Sprite lpoint = uneleven.sprites["lpoint"];
 			ftdat.updateable.Add(lpoint); // bit awkward
 			
@@ -9138,6 +9250,7 @@ namespace UN11
 			//
 			
 			// slide dependancies
+			log("Sorting out Slide Dependancies");
 			slideDependancies = new UN11.DependancyMapping<UN11.SlideDrawData>();
 			
 			slideDependancies.addDependancy(cddat, oddat);
@@ -9148,7 +9261,11 @@ namespace UN11
 			slideDependancies.addDependancy(voddat, tddat);
 			slideDependancies.addDependancy(vuddat, tddat);
 			
+			slideDependancies.addDependancy(tddat, t2ddat); // iffy
+			
 			slideDependancies.flattenOnto(fddat.slideDrawDatas);
+			
+			log("Some Boring Stuff");
 			
 			// Use clock
 			clock = new Stopwatch();
@@ -9164,6 +9281,8 @@ namespace UN11
 			depthBuffer = null;
 			depthView = null;
 
+			log("Seting up some event handlers");
+			
 			// Setup handler on resize form
 			form.UserResized += (sender, args) => userResized = true;
 
@@ -9178,6 +9297,12 @@ namespace UN11
 					form.Close();
 				else if (args.KeyCode == Keys.B)
 					mmddat.batched = !mmddat.batched;
+				else if (args.KeyCode == Keys.Space)
+				{
+					SharpDX.Direct3D11.Resource.ToFile(context, over.targetTextureSet.renderViewPair.renderView.Resource, ImageFileFormat.Bmp, "main.bmp");
+					SharpDX.Direct3D11.Resource.ToFile(context, torch.targetTextureSet.renderViewPair.renderView.Resource, ImageFileFormat.Bmp, "torch.bmp");
+					SharpDX.Direct3D11.Resource.ToFile(context, torch2.targetTextureSet.renderViewPair.renderView.Resource, ImageFileFormat.Bmp, "torch2.bmp");
+				}
 			};
 			
 			form.MouseDown += (sender, args) =>
@@ -9193,11 +9318,14 @@ namespace UN11
 		
 		void perform()
 		{
+			log("Starting UN11 Instance");
 			uneleven.start();
 			
 			// Main loop
+			log("Starting Renderloop");
 			RenderLoop.Run(form, frame);
 
+			log("Disposing Stuff");
 			// Release all resources
 			//vertexBuffer.Dispose();
 			depthBuffer.Dispose();
@@ -9211,6 +9339,7 @@ namespace UN11
 			swapChain.Dispose();
 			factory.Dispose();
 			
+			log("Telling UN11 Instance to Dispose of lots of Stuff");
 			uneleven.disposeAll();
 		}
 		
@@ -9225,6 +9354,7 @@ namespace UN11
 					return;
 				
 				// Dispose all previous allocated resources
+				// TODO: actually do this
 				Utilities.Dispose(ref backBuffer);
 				Utilities.Dispose(ref renderView);
 				Utilities.Dispose(ref depthBuffer);
@@ -9244,18 +9374,18 @@ namespace UN11
 
 				// Create the depth buffer
 				depthBuffer = new Texture2D(device, new Texture2DDescription()
-											{
-												Format = Format.D32_Float_S8X24_UInt,
-												ArraySize = 1,
-												MipLevels = 1,
-												Width = form.ClientSize.Width,
-												Height = form.ClientSize.Height,
-												SampleDescription = new SampleDescription(1, 0),
-												Usage = ResourceUsage.Default,
-												BindFlags = BindFlags.DepthStencil,
-												CpuAccessFlags = CpuAccessFlags.None,
-												OptionFlags = ResourceOptionFlags.None
-											});
+				                            {
+				                            	Format = Format.D32_Float_S8X24_UInt,
+				                            	ArraySize = 1,
+				                            	MipLevels = 1,
+				                            	Width = form.ClientSize.Width,
+				                            	Height = form.ClientSize.Height,
+				                            	SampleDescription = new SampleDescription(1, 0),
+				                            	Usage = ResourceUsage.Default,
+				                            	BindFlags = BindFlags.DepthStencil,
+				                            	CpuAccessFlags = CpuAccessFlags.None,
+				                            	OptionFlags = ResourceOptionFlags.None
+				                            });
 
 				// Create the depth buffer view
 				depthView = new DepthStencilView(device, depthBuffer);
@@ -9264,13 +9394,16 @@ namespace UN11
 				//context.Rasterizer.SetViewport(new Viewport(0, 0, form.ClientSize.Width, form.ClientSize.Height, 0.0f, 1.0f));
 				//context.OutputMerger.SetTargets(depthView, renderView);
 				
+				Format defaultFormat = Format.R32G32B32A32_Float;
+				Format defaultLightFormat = Format.R32_Float;//Format.R32_Float;
+				
 				vt = new UN11.ViewTrans(form.ClientSize.Width, form.ClientSize.Height, form.ClientSize.Width, form.ClientSize.Height);
 				
 				// set up view
 				view.setDimension(form.ClientSize.Width, form.ClientSize.Height);
 				view.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
-				view.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
-				view.sideTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				view.targetTextureSet.initRender(device, defaultFormat);
+				view.sideTextureSet.initRender(device, defaultFormat);
 				view.targetTextureSet.initStencil(device);
 				view.sideTextureSet.initStencil(device);
 				view.initOverness(device);
@@ -9281,8 +9414,8 @@ namespace UN11
 				
 				viewOver.setDimension(form.ClientSize.Width / overUnderDiv, form.ClientSize.Height / overUnderDiv);
 				viewOver.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
-				viewOver.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
-				viewOver.sideTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				viewOver.targetTextureSet.initRender(device, defaultFormat);
+				viewOver.sideTextureSet.initRender(device, defaultFormat);
 				viewOver.targetTextureSet.initStencil(device);
 				viewOver.sideTextureSet.initStencil(device);
 				viewOver.initOverness(device);
@@ -9290,8 +9423,8 @@ namespace UN11
 				
 				viewUnder.setDimension(form.ClientSize.Width / overUnderDiv, form.ClientSize.Height / overUnderDiv);
 				viewUnder.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 4.0f, form.ClientSize.Width / (float)form.ClientSize.Height, 0.1f, 1000.0f);
-				viewUnder.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
-				viewUnder.sideTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				viewUnder.targetTextureSet.initRender(device, defaultFormat);
+				viewUnder.sideTextureSet.initRender(device, defaultFormat);
 				viewUnder.targetTextureSet.initStencil(device);
 				viewUnder.sideTextureSet.initStencil(device);
 				viewUnder.initOverness(device);
@@ -9300,7 +9433,7 @@ namespace UN11
 				// set up over
 				over.setDimension(view.texWidth, view.texHeight);
 				over.initOverness(device);
-				over.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				over.targetTextureSet.initRender(device, defaultFormat);
 				over.targetTextureSet.initStencil(device);
 				over.texness.tex = uneleven.textures["view_main"];
 				over.texness.useTex = true;
@@ -9318,13 +9451,13 @@ namespace UN11
 				
 				// set up torch
 				torch.setDimension(view.texWidth, view.texHeight);
-				torch.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 8.0f, 1.0f, 0.1f, 50f);
+				torch.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 8.0f, 2.0f, 0.1f, 50f);
 				torch.lightType = UN11.LightType.Persp;
-				torch.lightDepth = 50;
+				torch.lightDepth = 40;
 				torch.lightAmbient = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
 				torch.lightColMod = new Vector4(1, 1, 1, 1);
 				torch.eye.pos = new Vector3(0, 5, 0);
-				torch.targetTextureSet.initRender(device, Format.R32G32B32A32_Float);
+				torch.targetTextureSet.initRender(device, defaultLightFormat);
 				torch.targetTextureSet.initStencil(device);
 				torch.lightEnabled = true;
 				torch.patternTex = uneleven.createTexture("white.png");
@@ -9332,6 +9465,23 @@ namespace UN11
 				torch.targetTextureSet.renderViewPair.clearColour = Color.Red;
 				torch.allowSkip = true;
 				torch.eye.dirNormalAt(new Vector3(10, 0, 10));
+				
+				// set up torch2
+				t2ddat.geometryDrawDatas = tddat.geometryDrawDatas;
+				torch2.setDimension(view.texWidth, view.texHeight);
+				torch2.eye.copy(view.eye);
+				torch2.lightType = UN11.LightType.Persp;
+				torch2.lightDepth = 100;
+				torch2.eye.projectionFar = 100;
+				torch2.lightAmbient = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
+				torch2.lightColMod = new Vector4(1, 1, 1, 1);
+				torch2.targetTextureSet.initRender(device, defaultLightFormat);
+				torch2.targetTextureSet.initStencil(device);
+				torch2.lightEnabled = true;
+				torch2.patternTex = uneleven.createTexture("white.png");
+				torch2.useLightPattern = true; // don't really have any other choice
+				torch2.targetTextureSet.renderViewPair.clearColour = Color.Red;
+				torch2.allowSkip = true;
 				
 				// set up face
 				face.setDimension(view.texWidth, view.texHeight);
@@ -9367,6 +9517,12 @@ namespace UN11
 				viewUnderElem.tech = uneleven.techniques["simpleFace"];
 				viewUnderElem.colmod = new Vector4(1f, 1f, 1f, 1f);
 				
+				UN11.TexElem light2ViewElem = new UN11.TexElem("light2viewelem", telem, new Rectangle(sew * 3, 0, sew, seh));
+				light2ViewElem.texness.tex = uneleven.textures["light_torch2"];
+				light2ViewElem.texness.useTex = true;
+				light2ViewElem.tech = uneleven.techniques["simpleFace"];
+				light2ViewElem.colmod = new Vector4(1f, 1f, 1f, 1f);
+				
 				// We are done resizing
 				userResized = false;
 			}
@@ -9392,12 +9548,14 @@ namespace UN11
 			
 			view.eye.pos = span;
 			view.eye.dirNormalAt(Vector3.Zero);
-			viewOver.eye.copy(view.eye);
-			viewUnder.eye.copy(view.eye);
+			viewOver.eye.copyView(view.eye);
+			viewUnder.eye.copyView(view.eye);
 			viewUnder.eye.mirror(new Vector3(0, -15, 0), Vector3.UnitY);
 			
-			torch.eye.pos = span;
-			torch.eye.dirNormalAt(Vector3.Zero);
+			//torch.eye.pos = span;
+			//torch.eye.dirNormalAt(Vector3.Zero);
+			torch.eye.copyView(view.eye);
+			torch2.eye.copyView(view.eye);
 			
 			// REAL STUFF
 			
