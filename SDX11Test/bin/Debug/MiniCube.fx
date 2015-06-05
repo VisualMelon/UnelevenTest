@@ -94,11 +94,11 @@ cbuffer lightBuffer : register(b1)
 
 // lightmap buffer ?
 
-tbuffer transBuffer : register(t12)
-//cbuffer transBuffer : register(b2)
+//tbuffer transBuffer : register(t12)
+cbuffer transBuffer : register(b2)
 {
-	matrix transarr[1024]; // need to be same as number of segs
-//	matrix transarr[64]; // need to be same as number of segs
+//	matrix transarr[1024]; // need to be same as number of segs
+	matrix transarr[64]; // need to be same as number of segs
 };
 
 cbuffer spriteDataBuffer : register(b2)
@@ -680,6 +680,7 @@ PS_Output PShade_Tex_Alpha_Light##lightName##(VS_Output_Tex inp) \
 	float num = inp.altPos.z; \
 	PS_Output outp = (PS_Output)0; \
 	outp.col.x = num; \
+	outp.col.w = 1; \
  \
 	return outp; \
 }
