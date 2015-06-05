@@ -594,13 +594,31 @@ namespace UN11
 		}
 		
 		
+		public interface PositionVertex
+		{
+			Vector4 vertexPos4 {get; set;}
+		}
+		
+		public interface NormalVertex
+		{
+			Vector4 vertexNrm4 {get; set;}
+		}
+		
+		public interface PositionNormalVertex : PositionVertex, NormalVertex
+		{
+		}
+		
+		public interface PositionNormalTTIVertex : PositionNormalVertex, TTIVertex
+		{
+		}
+		
 		public interface TTIVertex
 		{
 			float vertexTti {get; set;}
 		}
 		
 		[StructLayout(LayoutKind.Explicit)]
-		public struct VertexPC : TTIVertex
+		public struct VertexPC : PositionNormalTTIVertex
 		{
 			public static readonly InputElement[] layoutArr;
 			public static readonly int size;
@@ -650,6 +668,30 @@ namespace UN11
 				set
 				{
 					tti = value;
+				}
+			}
+			
+			public Vector4 vertexPos4
+			{
+				get
+				{
+					return pos4;
+				}
+				set
+				{
+					pos4 = value;
+				}
+			}
+			
+			public Vector4 vertexNrm4
+			{
+				get
+				{
+					return nrm4;
+				}
+				set
+				{
+					nrm4 = value;
 				}
 			}
 			
@@ -789,7 +831,7 @@ namespace UN11
 		}
 		
 		[StructLayout(LayoutKind.Explicit)]
-		public struct VertexPCT : TTIVertex
+		public struct VertexPCT : PositionNormalTTIVertex
 		{
 			public static readonly InputElement[] layoutArr; // slot 0
 			public static readonly InputElement[] layoutArrDecal; // slot 1
@@ -854,6 +896,30 @@ namespace UN11
 				set
 				{
 					tti = value;
+				}
+			}
+			
+			public Vector4 vertexPos4
+			{
+				get
+				{
+					return pos4;
+				}
+				set
+				{
+					pos4 = value;
+				}
+			}
+			
+			public Vector4 vertexNrm4
+			{
+				get
+				{
+					return nrm4;
+				}
+				set
+				{
+					nrm4 = value;
 				}
 			}
 			
@@ -2382,6 +2448,131 @@ namespace UN11
 				texness.applyTextures(context);
 				context.Draw(vertexCount, vertexOffset);
 			}
+			
+			
+			// splatters
+			private static Decal splatSquarePCT(VertexPCT[] vertexArray, short[] indexArray, int indexOffset, int triCount, ref Matrix splatMat, ref Ray ray, float nrmCoof, TransArr transArr, Texness texness)
+			{
+				List<VertexPCT> decalVerticies = new List<VertexPCT>();
+				
+				for (int i = indexOffset; i < indexOffset + triCount * 3; i += 3)
+				{ // for each triangle
+					VertexPCT a = vertexArray[(int)indexArray[i]];
+					VertexPCT b = vertexArray[(int)indexArray[i + 1]];
+					VertexPCT c = vertexArray[(int)indexArray[i + 2]];
+					
+					// extract position
+					Vector4 va = a.pos4;
+					Vector4 vb = c.pos4;
+					Vector4 vc = b.pos4;
+					
+					// transform position
+					Matrix tTransArr;
+					
+					tTransArr = transArr.getValue((int)a.tti);
+					Vector4.Transform(ref va, ref tTransArr, out va);
+					tTransArr = transArr.getValue((int)b.tti);
+					Vector4.Transform(ref vb, ref tTransArr, out vb);
+					tTransArr = transArr.getValue((int)c.tti);
+					Vector4.Transform(ref vc, ref tTransArr, out vc);
+					
+					// find triangle normal
+					Vector3 fwd = new Vector3(vb.X - va.X, vb.Y - va.Y, vb.Z - va.Z);
+					Vector3 bck = new Vector3(vc.X - va.X, vc.Y - va.Y, vc.Z - va.Z);
+					
+					Vector3 nrm = Vector3.Cross(bck, fwd);
+					
+					// normalise
+					nrm.Normalize();
+					
+					// dot/filter
+					float aa = -Vector3.Dot(nrm, ray.Direction);
+					if (aa < 0.0)
+						continue;
+					
+					aa = (1.0f - nrmCoof) + nrmCoof * aa;
+					
+					// splat
+					Vector4.Transform(ref va, ref splatMat, out va);
+					Vector4.Transform(ref vb, ref splatMat, out vb);
+					Vector4.Transform(ref vc, ref splatMat, out vc);
+					
+					// filter
+					if (va.X > 1.0 && vb.X > 1.0 && vc.X > 1.0)
+						continue;
+					if (va.Y > 1.0 && vb.Y > 1.0 && vc.Y > 1.0)
+						continue;
+					if (va.Z > 1.0 && vb.Z > 1.0 && vc.Z > 1.0)
+						continue;
+			
+					if (va.X < -1.0 && vb.X < -1.0 && vc.X < -1.0)
+						continue;
+					if (va.Y < -1.0 && vb.Y < -1.0 && vc.Y < -1.0)
+						continue;
+					if (va.Z < 0.0 && vb.Z < 0.0 && vc.Z < 0.0)
+						continue;
+					
+					// create new tex coords
+					a.tu = va.X * 0.5f + 0.5f;
+					a.tv = va.Y * 0.5f + 0.5f;
+					a.a = aa;
+					
+					b.tu = vb.X * 0.5f + 0.5f;
+					b.tv = vb.Y * 0.5f + 0.5f;
+					b.a = aa;
+					
+					c.tu = vc.X * 0.5f + 0.5f;
+					c.tv = vc.Y * 0.5f + 0.5f;
+					c.a = aa;
+					
+					// append vertices
+					decalVerticies.Add(a);
+					decalVerticies.Add(b);
+					decalVerticies.Add(c);
+				}
+				
+				if (decalVerticies.Count == 0)
+					return null;
+				
+				return new Decal(decalVerticies.ToArray(), texness);
+			}
+			
+			private static void splatSquare(Model mdl, ref Matrix splatMat, ref Ray ray, float nrmCoof, Texness texness)
+			{
+				foreach (Section sec in mdl.sections)
+				{
+					if (sec.acceptDecals)
+					{
+						if (mdl.vertexType == VertexType.VertexPCT)
+						{
+							Decal d = splatSquarePCT(mdl.verticesPCT, mdl.indices, sec.indexOffset, sec.triCount, ref splatMat, ref ray, nrmCoof, mdl.transArr, texness);
+							if (d != null)
+								sec.decals.pushDecal(d);
+						}
+					}
+				}
+			}
+			
+			public static void simpleSplatSquare(Model mdl, ref Ray ray, float nrmCoof, float width, float height, float nearZ, float farZ, Texness texness, float rot, out Matrix outSplatMat)
+			{
+				Vector3 eyeVec = ray.Position;
+				Vector3 targVec = ray.Position + ray.Direction;
+				Vector3 upVec = Vector3.UnitY;
+				
+				if (ray.Direction.X == 0 && ray.Direction.Z == 0)
+					upVec = Vector3.UnitX;
+				
+				Matrix rotMat = Matrix.RotationAxis(ray.Direction, rot);
+				Vector3.TransformNormal(ref upVec, ref rotMat, out upVec);
+				
+				Matrix viewMat = Matrix.LookAtLH(eyeVec, targVec, upVec);
+				Matrix projMat = Matrix.OrthoLH(width, height, nearZ, farZ);
+				Matrix splatMat = Matrix.Multiply(viewMat, projMat);
+				
+				splatSquare(mdl, ref splatMat, ref ray, nrmCoof, texness);
+				
+				outSplatMat = splatMat;
+			}
 		}
 		
 		public class DecalCollection : List<Decal>
@@ -2441,7 +2632,7 @@ namespace UN11
 			}
 			
 			// rips enough decals off the top to free up  count  vertices
-			public void pullDecals(int vCount)
+			private void pullDecals(int vCount)
 			{
 				if (vCount <= 0)
 					return; // why you even ask?
@@ -2879,7 +3070,7 @@ namespace UN11
 				//
 				// decals
 				//
-				return;
+				
 				if (drawDecals == false || decals == null)
 					goto noDecals;
 				
@@ -8483,7 +8674,8 @@ namespace UN11
 							}
 							else if (data[1] == "sec")
 							{
-								curSection.triCount = (indices.Count - curSection.indexOffset) / 3;
+								curSection.indexCount = (indices.Count - curSection.indexOffset);
+								curSection.triCount = curSection.indexCount / 3;
 							}
 							else if (data[1] == "pretty")
 							{
@@ -9418,7 +9610,7 @@ namespace UN11
 			ftdat.updateable.Add(torch2);
 			
 			UN11.ModelEntity ment = new UN11.ModelEntity(new UN11.Model(uneleven.models["map"], device, context, true), "ment");
-			ment.mdl.initSectionDecals(device, 100);
+			ment.mdl.initSectionDecals(device, 1000);
 			ment.or.offset.Y = -15;
 			ment.update(true);
 			ment.mdl.noCull = true;
@@ -9579,12 +9771,21 @@ namespace UN11
 				}
 			};
 			
+			UN11.Texness decalTexness = new UN11.Texness();
+			decalTexness.tex = uneleven.textures["white.png"];
+			decalTexness.useTex = true;
+			Matrix mehMat;
+			
 			form.MouseDown += (sender, args) =>
 			{
 				Ray r = telem.unproject(args.X, args.Y);
-				r.Direction *= 100;
+				r.Direction *= 100f;
 				lines.push(r, new Color4(1f, 1f, 0f, 1f));
 				lines.updateResize(device, context);
+				
+				// splat!
+				r.Direction /= 100f;
+				UN11.Decal.simpleSplatSquare(ment.mdl, ref r, 1, 5, 5, 0, 100, decalTexness, 0, out mehMat);
 			};
 			
 			perform();
