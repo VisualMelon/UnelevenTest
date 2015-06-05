@@ -505,7 +505,8 @@ namespace UN11
 		{
 			VertexPC,
 			VertexPCT,
-			VertexOver
+			VertexOver,
+			VertexDecal
 		}
 		
 		public enum AlphaMode
@@ -570,6 +571,8 @@ namespace UN11
 					return VertexPCT.layoutArr;
 				case VertexType.VertexOver:
 					return VertexOver.layoutArr;
+				case VertexType.VertexDecal:
+					return VertexPCT.layoutArrDecal;
 				default:
 					return null;
 			}
@@ -788,7 +791,8 @@ namespace UN11
 		[StructLayout(LayoutKind.Explicit)]
 		public struct VertexPCT : TTIVertex
 		{
-			public static readonly InputElement[] layoutArr;
+			public static readonly InputElement[] layoutArr; // slot 0
+			public static readonly InputElement[] layoutArrDecal; // slot 1
 			public static readonly int size;
 			
 			static VertexPCT()
@@ -800,6 +804,15 @@ namespace UN11
 					new InputElement("COLOR", 0, Format.R32G32B32A32_Float, 32, 0),
 					new InputElement("TEXCOORD", 0, Format.R32G32_Float, 48, 0),
 					new InputElement("TEXCOORD", 1, Format.R32_Float, 56, 0),
+				};
+				
+				layoutArrDecal = new[]
+				{
+					new InputElement("POSITION", 0, Format.R32G32B32A32_Float, 0, 1),
+					new InputElement("NORMAL", 0, Format.R32G32B32A32_Float, 16, 1),
+					new InputElement("COLOR", 0, Format.R32G32B32A32_Float, 32, 1),
+					new InputElement("TEXCOORD", 0, Format.R32G32_Float, 48, 1),
+					new InputElement("TEXCOORD", 1, Format.R32_Float, 56, 1),
 				};
 				
 				size = Utilities.SizeOf<VertexPCT>();
@@ -951,6 +964,7 @@ namespace UN11
 		{
 			private Dictionary<ShaderBytecodeDesc, ShaderBytecode> bytecodes = new Dictionary<ShaderBytecodeDesc, ShaderBytecode>();
 			
+			// TODO: work out what purpose this has and add  string cacheDir  if sensible
 			public ShaderBytecodeDesc loadShaderBytecode(string fileName, string shaderName, string profile)
 			{
 				ShaderBytecodeDesc temp = new ShaderBytecodeDesc(fileName, shaderName, profile);
@@ -1705,10 +1719,10 @@ namespace UN11
 		[StructLayout(LayoutKind.Explicit, Size=TransCData.maxTransMats * sizeof(float) * 16)]
 		public struct TransCData
 		{
-			public const int defaultSlot = 12;
-			//public const int defaultSlot = 2;
-			public const int maxTransMats = 1024;
-			//public const int maxTransMats = 64;
+			//public const int defaultSlot = 12;
+			public const int defaultSlot = 2;
+			//public const int maxTransMats = 1024;
+			public const int maxTransMats = 64;
 			
 			[FieldOffsetAttribute(0)]
 			public Matrix mat0;
@@ -1886,7 +1900,7 @@ namespace UN11
 			}
 			
 			/// <summary>
-			/// Create a const buffer which will create a buffer description based on the size of T
+			/// Create a texture buffer which will create a buffer description based on the size of T
 			/// </summary>
 			public TextureBuffer(Device device, int slotN, int elemSizeN, int elemCountN)
 			{
@@ -2071,8 +2085,9 @@ namespace UN11
 			public Technique tech; // plain pass
 			public Technique litTech;
 			public Technique lightTech; // plain pass
-			public Technique decalTech;
-			public Technique dynamicDecalTech;
+			public Technique decalTech; // plain pass
+			public Technique litDecalTech;
+			public Technique dynamicDecalTech; // no idea
 			public Technique overTech;
 			
 			public VertexType vertexType;
@@ -2335,6 +2350,184 @@ namespace UN11
 			}
 		}
 		
+		public class Decal
+		{
+			private VertexPCT[] vPCTs;
+			
+			private int vertexOffset {get; set;}
+			public int vertexCount {get; private set;}
+			
+			private Texness texness;
+			
+			public Decal(VertexPCT[] vPCTsN, Texness texnessN)
+			{
+				vPCTs = vPCTsN;
+				texness = texnessN;
+				vertexCount = vPCTs.Length;
+			}
+			
+			public void shiftBack(int vOffset)
+			{
+				vertexOffset -= vOffset;
+			}
+			
+			public void appendTo(VertexPCTBuffer verticesPCT)
+			{
+				vertexOffset = verticesPCT.nextOffset;
+				verticesPCT.append(vPCTs);
+			}
+			
+			public void draw(DeviceContext context)
+			{
+				texness.applyTextures(context);
+				context.Draw(vertexCount, vertexOffset);
+			}
+		}
+		
+		public class DecalCollection : List<Decal>
+		{
+		}
+		
+		// Probably a good idea to re-write this using a RING BUFFER of some variety,
+		// we will live with a normal list for now
+		// Could probably move most of the stuff in Decals into a generic VertexBuffer class of some sort, actually...
+		// might tidy Lines up a bit too
+		// Actually, decals are pretty well inter-twined, but a generic "Vertex Block with associated object" thing might go well
+		public class VertexPCTBuffer : List<VertexPCT>
+		{
+			public int nextOffset
+			{
+				get
+				{
+					return Count;
+				}
+			}
+			
+			public void append(VertexPCT[] vPCTs)
+			{
+				AddRange(vPCTs);
+			}
+		}
+		
+		public class Decals : ANamed
+		{
+			private Buffer vbuff;
+			private VertexBufferBinding vbuffBinding;
+			public int capacity {get; private set;} // vPC capacity (i.e. /2 to get line capacity)
+			private DecalCollection decals = new DecalCollection();
+			private VertexPCTBuffer verticesPCT = new VertexPCTBuffer();
+			
+			private int stride = UN11.VertexPCT.size;
+			
+			private bool needsUpdate = true;
+			
+			public Decals(Device device, int capacityN) : base("Decals")
+			{
+				capacity = capacityN;
+				createVBuff(device);
+			}
+			
+			public void dispose()
+			{
+				if (vbuff != null)
+					vbuff.Dispose();
+				vbuff = null;
+			}
+			
+			public void trim(Device device)
+			{
+				decals.TrimExcess();
+				verticesPCT.TrimExcess();
+			}
+			
+			// rips enough decals off the top to free up  count  vertices
+			public void pullDecals(int vCount)
+			{
+				if (vCount <= 0)
+					return; // why you even ask?
+				
+				int vc = 0;
+				int dc = 0;
+				for (int i = 0; i < decals.Count; i++)
+				{
+					vc += decals[0].vertexCount;
+					dc++;
+					if (vc >= vCount)
+						break;
+				}
+				
+				decals.RemoveRange(0, dc);
+				verticesPCT.RemoveRange(0, vc);
+				
+				foreach (Decal d in decals)
+				{
+					d.shiftBack(vc);
+				}
+				
+				needsUpdate = true;
+			}
+			
+			public void pushDecal(Decal d)
+			{
+				if (d.vertexCount > capacity)
+					return; // sorry
+				
+				 // pull some off the start before we add to the end
+				pullDecals(verticesPCT.Count + d.vertexCount - capacity);
+				
+				d.appendTo(verticesPCT);
+				decals.Add(d);
+				needsUpdate = true;
+			}
+			
+			private void createVBuff(Device device)
+			{
+				vbuff = new Buffer(device, new BufferDescription(capacity * stride, ResourceUsage.Dynamic, BindFlags.VertexBuffer, CpuAccessFlags.Write, ResourceOptionFlags.None, stride));
+				vbuffBinding = new VertexBufferBinding(vbuff, stride, 0);
+			}
+			
+			private unsafe void fillVBuff(DeviceContext context)
+			{
+				DataStream dstream;
+				context.MapSubresource(vbuff, MapMode.WriteDiscard, MapFlags.None, out dstream);
+				
+				VertexPCT[] vPCTarr = verticesPCT.ToArray();
+				
+				byte* buffPtr = (byte*)dstream.DataPointer;
+				fixed (VertexPCT* vertexPtrVP = vPCTarr)
+				{
+					byte* verticesPtr = (byte*)vertexPtrVP;
+					
+					Utils.copy(verticesPtr, buffPtr, vPCTarr.Length * stride);
+				}
+				
+				dstream.Dispose();
+				context.UnmapSubresource(vbuff, 0);
+			}
+			
+			// this gets called internally if you don't call it, so you don't need to worry about it
+			public void update(DeviceContext context)
+			{
+				fillVBuff(context);
+				needsUpdate = false;
+			}
+			
+			public void apply(DeviceContext context)
+			{
+				if (needsUpdate)
+					update(context);
+				
+				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList;
+				context.InputAssembler.SetVertexBuffers(1, vbuffBinding);
+			}
+			
+			public void draw(DeviceContext context)
+			{
+				foreach (Decal d in decals)
+					d.draw(context);
+			}
+		}
+		
 		public class Section : Named, PrimativeSection
 		{
 			public string name {get; private set;}
@@ -2350,6 +2543,8 @@ namespace UN11
 			public bool drawDecals;
 			public bool acceptDecals;
 			public bool drawDynamicDecals;
+			
+			public Decals decals;
 			
 			public bool sectionEnabled; // whether it should draw or not
 			
@@ -2381,6 +2576,14 @@ namespace UN11
 				drawDynamicDecals = gin.drawDynamicDecals;
 				
 				sectionEnabled = gin.sectionEnabled;
+			}
+			
+			public void initDecals(Device device, int capacity)
+			{
+				if (decals != null)
+					decals.dispose();
+				
+				decals = new Decals(device, capacity);
 			}
 			
 			private void drawPrims(DeviceContext context, int batchCount)
@@ -2451,6 +2654,7 @@ namespace UN11
 				
 			noPlainPass:
 				
+				// lit
 				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litTech != null)
 				{
 					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
@@ -2535,6 +2739,7 @@ namespace UN11
 				
 			noPlainPass:
 				
+				// lit
 				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litTech != null)
 				{
 					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
@@ -2649,6 +2854,7 @@ namespace UN11
 				
 			noPlainPass:
 				
+				// lit
 				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litTech != null)
 				{
 					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
@@ -2669,6 +2875,56 @@ namespace UN11
 						drawPrims(context, 1);
 					}
 				}
+				
+				//
+				// decals
+				//
+				return;
+				if (drawDecals == false || decals == null)
+					goto noDecals;
+				
+				decals.apply(context);
+				
+				ddat.pddat.uneleven.blendStates.none.apply(context);
+				
+				// plain pass
+				if (ddat.sceneType == SceneType.Light)
+					goto noDecals; // don't 'light' decals for now
+					//prettyness.prettyness.lightTech.passes[(int)ddat.lightMapBuffer.data.lightType].apply(context);
+				else if (prettyness.prettyness.decalTech != null) // TODO: make this explicit
+					prettyness.prettyness.decalTech.passes[0].apply(context);
+				else
+					goto noPlainDecalPass;
+				
+				decals.draw(context);
+				
+			noPlainDecalPass:
+				
+				// lit
+				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litDecalTech != null)
+				{
+					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
+					
+					foreach (Light l in ddat.lights)
+					{
+						if (!l.lightEnabled || l.canSkip(mdl.modelBox))
+							continue;
+						
+						l.lightBuffer.update(context); // FIXME: TODO: MAYBE: can this be shifted somewhere else, so it isn't run once per section?
+						l.lightBuffer.applyVStage(context);
+						l.lightBuffer.applyPStage(context);
+						
+						l.applyTextures(context);
+						
+						prettyness.prettyness.litDecalTech.passes[(int)l.lightType].apply(context);
+						
+						decals.draw(context);
+					}
+				}
+				
+			noDecals:
+				
+				return;
 			}
 		}
 		
@@ -3105,6 +3361,9 @@ namespace UN11
 
 			public bool collides(Ray ray)
 			{
+				if (inside(ray.Position))
+					return true;
+				
 				for (int i = 0; i < 36; i += 3)
 				{
 					if (ray.Intersects(ref vecArr[bboxIndices[i]], ref vecArr[bboxIndices[i + 1]], ref vecArr[bboxIndices[i + 2]]))
@@ -3298,14 +3557,14 @@ namespace UN11
 		
 		public class TransArrBuffer
 		{
-			TextureBuffer<TransCData> transBuffer;
-			//ConstBuffer<TransCData> transBuffer;
+			//TextureBuffer<TransCData> transBuffer;
+			ConstBuffer<TransCData> transBuffer;
 			
 			public TransArrBuffer(Device device)
 			{
 				// TODO: tidy this up, somehow
-				transBuffer = new TextureBuffer<TransCData>(device, TransCData.defaultSlot, 4, TransCData.maxTransMats);
-				//transBuffer = new ConstBuffer<TransCData>(device, TransCData.defaultSlot);
+				//transBuffer = new TextureBuffer<TransCData>(device, TransCData.defaultSlot, 4, TransCData.maxTransMats);
+				transBuffer = new ConstBuffer<TransCData>(device, TransCData.defaultSlot);
 			}
 			
 			public unsafe void update(DeviceContext context)
@@ -3370,8 +3629,8 @@ namespace UN11
 		
 		public class CompoundTransArrBuffer : TransArrBuffer
 		{
-			public int maxCount {get; private set;} // TODO: remove this (transArrs are always the right size)
-			public int matCount {get; private set;} // FIXME: what is this for?
+			public int maxCount {get; private set;}
+			public int matCount {get; private set;}
 			private int curOffset;
 			public int count {get; private set;}
 			
@@ -3615,8 +3874,7 @@ namespace UN11
 		public class ManySpriteDrawData : GeometryDrawData
 		{
 			public Sprite sprt;
-			public bool useOwnSections = true; // if you set this to false, you probably want to be batching
-			public bool batched = true;
+			public bool batched = true; // only option (at the moment, atleast)
 			public List<SpriteData> sDats = new List<UN11.SpriteData>();
 			
 			public SpriteDrawFlags flags;
@@ -3827,6 +4085,7 @@ namespace UN11
 				
 			noPlainPass:
 				
+				// lit
 				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litTech != null)
 				{
 					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
@@ -5032,6 +5291,12 @@ namespace UN11
 				
 				createTransArrBuffers(gin, device);
 				createSegmentBoxes();
+			}
+			
+			public void initSectionDecals(Device device, int perSectionCapacity)
+			{
+				foreach (Section sec in sections)
+					sec.initDecals(device, perSectionCapacity);
 			}
 			
 			public Section getSec(string name)
@@ -7179,7 +7444,7 @@ namespace UN11
 				lightBuffer.data.lightAmbient = lightAmbient;
 				lightBuffer.data.lightColMod = lightColMod;
 				lightBuffer.data.lightDepth = lightDepth;
-				lightBuffer.data.lightDodge = 0.0011f; // HACK: help
+				lightBuffer.data.lightDodge = 0.00011f; // HACK: help
 				lightBuffer.data.lightCoof = 1.0f; // HACK: are we removing this?
 				lightBuffer.data.lightType = (float)lightType;
 			}
@@ -7197,7 +7462,7 @@ namespace UN11
 				lightMapBuffer.data.lightAmbient = lightAmbient;
 				lightMapBuffer.data.lightColMod = lightColMod;
 				lightMapBuffer.data.lightDepth = lightDepth;
-				lightMapBuffer.data.lightDodge = 0.0011f; // HACK: help
+				lightMapBuffer.data.lightDodge = 0.00011f; // HACK: help
 				lightMapBuffer.data.lightCoof = 1.0f; // HACK: are we removing this?
 				lightMapBuffer.data.lightType = (float)lightType;
 			}
@@ -7838,6 +8103,10 @@ namespace UN11
 							else if (data[1] == "over")
 							{
 								vertexType = VertexType.VertexOver;
+							}
+							else if (data[1] == "decal")
+							{
+								vertexType = VertexType.VertexDecal;
 							}
 							else
 								throwFPE("Unrecognised vertex type \"" + data[1] + "\"");
@@ -8547,6 +8816,10 @@ namespace UN11
 						{
 							curPrettyness.decalTech = techniques[data[1]];
 						}
+						else if (data[0] == "technique_decal_lit")
+						{
+							curPrettyness.litDecalTech = techniques[data[1]];
+						}
 						else if (data[0] == "technique_dyndecal")
 						{
 							curPrettyness.dynamicDecalTech = techniques[data[1]];
@@ -8848,7 +9121,7 @@ namespace UN11
 	/// </summary>
 	internal class Program
 	{
-		private static Random rnd = new Random();
+		private static Random rnd = new Random(0);
 		
 		private TextWriter logWriter = System.Console.Out;
 		
@@ -9132,7 +9405,7 @@ namespace UN11
 			voddat.geometryDrawDatas.Add(new UN11.LinesDrawData(lines));
 			
 			vddat.lights.Add(sun);
-			//vddat.lights.Add(torch);
+			vddat.lights.Add(torch);
 			vddat.lights.Add(torch2);
 			
 			//voddat.geometryDrawDatas = vddat.geometryDrawDatas; // fill this (omit water)
@@ -9145,6 +9418,7 @@ namespace UN11
 			ftdat.updateable.Add(torch2);
 			
 			UN11.ModelEntity ment = new UN11.ModelEntity(new UN11.Model(uneleven.models["map"], device, context, true), "ment");
+			ment.mdl.initSectionDecals(device, 100);
 			ment.or.offset.Y = -15;
 			ment.update(true);
 			ment.mdl.noCull = true;
@@ -9169,7 +9443,7 @@ namespace UN11
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
-			for (int i = 0; i < n * n / 10; i++)
+			for (int i = 0; i < n * n / 5; i++)
 			{
 				tent = new UN11.ModelEntity(new UN11.Model(uneleven.models["tree0"], device, context, false), "tent" + i);
 			again:
@@ -9211,7 +9485,7 @@ namespace UN11
 			n += 20; // more coverage, just for fun
 			n=0;
 			msddat = new UN11.ManySpriteDrawData(smoke, UN11.SpriteDrawFlags.colourDefault);
-			for (int i = 0; i < n * n / 1; i++)
+			for (int i = 0; i < n * n / 10; i++)
 			{
 				UN11.SpriteData temp = new UN11.SpriteData(smoke);
 				temp[smoke.layout.Position0] = new Vector4(rnd.NextFloat(-n, n), rnd.NextFloat(-15, -10), rnd.NextFloat(-n, n), 1f);
@@ -9299,9 +9573,9 @@ namespace UN11
 					mmddat.batched = !mmddat.batched;
 				else if (args.KeyCode == Keys.Space)
 				{
-					SharpDX.Direct3D11.Resource.ToFile(context, over.targetTextureSet.renderViewPair.renderView.Resource, ImageFileFormat.Bmp, "main.bmp");
-					SharpDX.Direct3D11.Resource.ToFile(context, torch.targetTextureSet.renderViewPair.renderView.Resource, ImageFileFormat.Bmp, "torch.bmp");
-					SharpDX.Direct3D11.Resource.ToFile(context, torch2.targetTextureSet.renderViewPair.renderView.Resource, ImageFileFormat.Bmp, "torch2.bmp");
+					SharpDX.Direct3D11.Resource.ToFile(context, over.targetTextureSet.renderViewPair.renderView.Resource, ImageFileFormat.Png, "main.png");
+					SharpDX.Direct3D11.Resource.ToFile(context, torch.targetTextureSet.renderViewPair.renderView.Resource, ImageFileFormat.Png, "torch.png");
+					SharpDX.Direct3D11.Resource.ToFile(context, torch2.targetTextureSet.renderViewPair.renderView.Resource, ImageFileFormat.Png, "torch2.png");
 				}
 			};
 			
@@ -9395,7 +9669,7 @@ namespace UN11
 				//context.OutputMerger.SetTargets(depthView, renderView);
 				
 				Format defaultFormat = Format.R32G32B32A32_Float;
-				Format defaultLightFormat = Format.R32_Float;//Format.R32_Float;
+				Format defaultLightFormat = Format.R32G32B32A32_Float;//Format.R32_Float;
 				
 				vt = new UN11.ViewTrans(form.ClientSize.Width, form.ClientSize.Height, form.ClientSize.Width, form.ClientSize.Height);
 				
@@ -9442,10 +9716,10 @@ namespace UN11
 				
 				// set up sun
 				sun.lightType = UN11.LightType.Point;
-				sun.lightDepth = 50;
+				sun.lightDepth = 200;
 				sun.lightAmbient = new Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-				sun.lightColMod = new Vector4(1, 1, 1, 1);
-				sun.eye.pos = new Vector3(0, 10, 5);
+				sun.lightColMod = new Vector4(0.1f, 0.1f, 0.05f, 1f);
+				sun.eye.pos = new Vector3(0, 100, 5);
 				sun.lightEnabled = true;
 				sun.allowSkip = false; // provides ambience
 				
@@ -9453,7 +9727,7 @@ namespace UN11
 				torch.setDimension(view.texWidth, view.texHeight);
 				torch.eye.setProj(UN11.EyeMode.Persp, (float)Math.PI / 8.0f, 2.0f, 0.1f, 50f);
 				torch.lightType = UN11.LightType.Persp;
-				torch.lightDepth = 40;
+				torch.lightDepth = 25;
 				torch.lightAmbient = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
 				torch.lightColMod = new Vector4(1, 1, 1, 1);
 				torch.eye.pos = new Vector3(0, 5, 0);
@@ -9478,7 +9752,7 @@ namespace UN11
 				torch2.targetTextureSet.initRender(device, defaultLightFormat);
 				torch2.targetTextureSet.initStencil(device);
 				torch2.lightEnabled = true;
-				torch2.patternTex = uneleven.createTexture("white.png");
+				torch2.patternTex = uneleven.createTexture("b_ring.png");
 				torch2.useLightPattern = true; // don't really have any other choice
 				torch2.targetTextureSet.renderViewPair.clearColour = Color.Red;
 				torch2.allowSkip = true;
@@ -9534,7 +9808,7 @@ namespace UN11
 			//context.ClearRendedothrTargetView(renderView, Color.Black);
 
 			// Update WorldViewProj Matrix
-			var rot = Matrix.RotationX(time) * Matrix.RotationY(time * 2) * Matrix.RotationZ(time * .7f);
+			var rot = Matrix.RotationX(time * 0.5f) * Matrix.RotationY(time) * Matrix.RotationZ(time * 0.35f);
 			Vector3 span = new Vector3(15, 0, 0);
 			Vector3.TransformCoordinate(ref span, ref rot, out span);
 			
@@ -9546,8 +9820,9 @@ namespace UN11
 //			eyeBuffer = new UN11.ConstBuffer<UN11.EyeCData>(device, UN11.EyeCData.defaultSlot);
 //			eyeBuffer.data.viewProj = worldViewProj;
 			
-			view.eye.pos = span;
-			view.eye.dirNormalAt(Vector3.Zero);
+			Vector3 vOffset = new Vector3(0, 2, 0);
+			view.eye.pos = span + vOffset;
+			view.eye.dirNormalAt(Vector3.Zero + vOffset);
 			viewOver.eye.copyView(view.eye);
 			viewUnder.eye.copyView(view.eye);
 			viewUnder.eye.mirror(new Vector3(0, -15, 0), Vector3.UnitY);
@@ -9556,6 +9831,8 @@ namespace UN11
 			//torch.eye.dirNormalAt(Vector3.Zero);
 			torch.eye.copyView(view.eye);
 			torch2.eye.copyView(view.eye);
+			torch2.eye.pos.Y -= 2;
+			torch2.eye.dirNormalAt(Vector3.Zero + vOffset);
 			
 			// REAL STUFF
 			
