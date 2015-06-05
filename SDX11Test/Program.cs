@@ -1693,7 +1693,7 @@ namespace UN11
 				pointBorderDesc.AddressV = TextureAddressMode.Border;
 				pointBorderDesc.AddressW = TextureAddressMode.Border;
 				pointBorderDesc.Filter = Filter.MinMagMipPoint;
-				pointBorderDesc.BorderColor = Color4.Black;
+				pointBorderDesc.BorderColor = transBlack;
 				pointBorderDesc.ComparisonFunction = Comparison.Never;
 				pointBorder = new AppliableSamplerState(device, pointBorderDesc);
 				
@@ -2175,6 +2175,7 @@ namespace UN11
 				litTech = gin.litTech;
 				lightTech = gin.lightTech;
 				decalTech = gin.decalTech;
+				litDecalTech = gin.litDecalTech;
 				dynamicDecalTech = gin.dynamicDecalTech;
 				overTech = gin.overTech;
 				
@@ -2463,8 +2464,8 @@ namespace UN11
 					
 					// extract position
 					Vector4 va = a.pos4;
-					Vector4 vb = c.pos4;
-					Vector4 vc = b.pos4;
+					Vector4 vb = b.pos4;
+					Vector4 vc = c.pos4;
 					
 					// transform position
 					Matrix tTransArr;
@@ -2480,15 +2481,15 @@ namespace UN11
 					Vector3 fwd = new Vector3(vb.X - va.X, vb.Y - va.Y, vb.Z - va.Z);
 					Vector3 bck = new Vector3(vc.X - va.X, vc.Y - va.Y, vc.Z - va.Z);
 					
-					Vector3 nrm = Vector3.Cross(bck, fwd);
+					Vector3 nrm = Vector3.Cross(fwd, bck);
 					
 					// normalise
 					nrm.Normalize();
 					
 					// dot/filter
 					float aa = -Vector3.Dot(nrm, ray.Direction);
-					if (aa < 0.0)
-						continue;
+					//if (aa < 0.0)
+					//	continue;
 					
 					aa = (1.0f - nrmCoof) + nrmCoof * aa;
 					
@@ -2515,7 +2516,7 @@ namespace UN11
 					// create new tex coords
 					a.tu = va.X * 0.5f + 0.5f;
 					a.tv = va.Y * 0.5f + 0.5f;
-					a.a = aa;
+					a.a = aa; // should probably be base the individual normals of the individual verticies
 					
 					b.tu = vb.X * 0.5f + 0.5f;
 					b.tv = vb.Y * 0.5f + 0.5f;
@@ -2641,7 +2642,7 @@ namespace UN11
 				int dc = 0;
 				for (int i = 0; i < decals.Count; i++)
 				{
-					vc += decals[0].vertexCount;
+					vc += decals[i].vertexCount;
 					dc++;
 					if (vc >= vCount)
 						break;
@@ -3076,7 +3077,7 @@ namespace UN11
 				
 				decals.apply(context);
 				
-				ddat.pddat.uneleven.blendStates.none.apply(context);
+				ddat.pddat.uneleven.blendStates.addSrcInvSrc.apply(context);
 				
 				// plain pass
 				if (ddat.sceneType == SceneType.Light)
@@ -3094,7 +3095,7 @@ namespace UN11
 				// lit
 				if (ddat.sceneType != SceneType.Light && prettyness.prettyness.lightingMode == LightingMode.Full && prettyness.prettyness.litDecalTech != null)
 				{
-					ddat.pddat.uneleven.blendStates.addOneOne.apply(context);
+					ddat.pddat.uneleven.blendStates.addSrcOne.apply(context);
 					
 					foreach (Light l in ddat.lights)
 					{
@@ -9631,7 +9632,7 @@ namespace UN11
 			
 			// lots of trees?!
 			log("Creating a shed load of trees....");
-			int n = 100;
+			int n = 10;//100;
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
@@ -9772,7 +9773,7 @@ namespace UN11
 			};
 			
 			UN11.Texness decalTexness = new UN11.Texness();
-			decalTexness.tex = uneleven.textures["white.png"];
+			decalTexness.tex = uneleven.textures["tree0_tall.png"];
 			decalTexness.useTex = true;
 			Matrix mehMat;
 			

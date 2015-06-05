@@ -666,6 +666,53 @@ STD_MCR_PShade_Tex_Alpha_Lit(Ortho)
 STD_MCR_PShade_Tex_Alpha_Lit(Persp)
 STD_MCR_PShade_Tex_Alpha_Lit(Point)
 
+PS_Output PShade_Decal_Alpha(VS_Output_Tex inp)
+{
+	PS_Output outp = (PS_Output)0;
+	outp.col = inp.col * tex.Sample(pointBorderSampler, inp.txc);
+
+	//clip(outp.col.w - 0.5);
+
+	outp.col = outp.col * colMod;
+	float alphaPreserve = outp.col.w;
+
+	outp.col = outp.col * (1.0 - lightCoof);
+
+	outp.col *= alphaPreserve;
+	outp.col.w = alphaPreserve;
+
+	return outp;
+}
+
+// PShade_Tex_Alpha_Lit
+#define STD_MCR_PShade_Decal_Alpha_Lit(lightName) \
+PS_Output PShade_Decal_Alpha_Lit##lightName##(VS_Output_Tex inp) \
+{ \
+	PS_Output outp = (PS_Output)0; \
+	outp.col = inp.col * tex.Sample(pointBorderSampler, inp.txc); \
+ \
+	/*clip(outp.col.w - 0.5);*/ \
+ \
+	float4 lightMod = calcLightMod##lightName##(inp.lmc); \
+ \
+	outp.col = outp.col * colMod; \
+	float alphaPreserve = outp.col.w; \
+ \
+	outp.col = outp.col * (lightMod * clampPositive(inp.lit) + lightAmbient) * lightCoof; \
+ \
+	outp.col *= alphaPreserve; \
+	outp.col.w = 0; \
+	/*outp.col.r = inp.txc.x; \
+	outp.col.g = inp.txc.y; \
+	outp.col.b = 0.0;*/ \
+ \
+	return outp; \
+}
+
+STD_MCR_PShade_Decal_Alpha_Lit(Ortho)
+STD_MCR_PShade_Decal_Alpha_Lit(Persp)
+STD_MCR_PShade_Decal_Alpha_Lit(Point)
+
 // PShade_Tex_Alpha_Light
 #define STD_MCR_PShade_Tex_Alpha_Light(lightName) \
 PS_Output PShade_Tex_Alpha_Light##lightName##(VS_Output_Tex inp) \
