@@ -40,6 +40,27 @@ pass vs_4_0 VShade_Tex_Alpha_LightPersp ps_4_0 PShade_Tex_Alpha_LightPersp
 pass vs_4_0 VShade_Tex_Alpha_LightPoint ps_4_0 PShade_Tex_Alpha_LightPoint
 end tech
 
+// decal techniques
+
+tech simpleDecal_alpha
+vertex decal
+pass vs_4_0 VShade_Tex ps_4_0 PShade_Tex_Alpha
+end tech
+
+tech simpleDecal_alpha_lit
+vertex decal
+pass vs_4_0 VShade_Tex_LitOrtho ps_4_0 PShade_Tex_Alpha_LitOrtho
+pass vs_4_0 VShade_Tex_LitPersp ps_4_0 PShade_Tex_Alpha_LitPersp
+pass vs_4_0 VShade_Tex_LitPoint ps_4_0 PShade_Tex_Alpha_LitPoint
+end tech
+
+tech simpleDecal_alpha_light
+vertex decal
+pass vs_4_0 VShade_Tex_Alpha_LightOrtho ps_4_0 PShade_Tex_Alpha_LightOrtho
+pass vs_4_0 VShade_Tex_Alpha_LightPersp ps_4_0 PShade_Tex_Alpha_LightPersp
+pass vs_4_0 VShade_Tex_Alpha_LightPoint ps_4_0 PShade_Tex_Alpha_LightPoint
+end tech
+
 // side/over techniques
 
 tech simpleOver

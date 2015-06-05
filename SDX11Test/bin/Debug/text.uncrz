@@ -15113,12 +15113,15 @@ pretty colour
 colmod 0 0.5 0 1
 technique simpleTex_alpha
 technique_lit simpleTex_alpha_lit
-technique_decal simple_decal
+technique_decal simpleDecal_alpha
+technique_decal_lit simpleDecal_alpha_lit
 technique_dyndecal simpleTex_dynamicdecal
 technique_over simpleSideOver
 texture white.png
 lighting full
 dyndecals nodraw
+decals accept
+decals draw
 alpha none
 end pretty
 
@@ -29578,6 +29581,8 @@ mat 0 view_main_under_viewprojvp
 mat 1 view_main_over_viewprojvp
 lighting none
 dyndecals nodraw
+decals noaccept
+decals nodraw
 alpha none
 end pretty
 
