@@ -181,20 +181,6 @@ namespace UN11
 				stencilView = stencilViewN;
 			}
 			
-			public void applyRender(DeviceContext context, bool clearColor)
-			{
-				context.OutputMerger.SetRenderTargets(renderView);
-				if (clearColor)
-					context.ClearRenderTargetView(renderView, clearColour);
-			}
-			
-			public void applyStencil(DeviceContext context, bool clearDepth)
-			{
-				context.OutputMerger.SetRenderTargets(stencilView, (RenderTargetView)null);
-				if (clearDepth)
-					context.ClearDepthStencilView(stencilView, DepthStencilClearFlags.Depth, 1.0f, 0);
-			}
-			
 			public void apply(DeviceContext context, bool clearDepth, bool clearColor)
 			{
 				context.OutputMerger.SetRenderTargets(stencilView, renderView);
@@ -202,6 +188,15 @@ namespace UN11
 					context.ClearDepthStencilView(stencilView, DepthStencilClearFlags.Depth, 1.0f, 0);
 				if (clearColor)
 					context.ClearRenderTargetView(renderView, clearColour);
+			}
+			
+			public static void apply(DeviceContext context, RenderViewPair depth, RenderViewPair color, bool clearDepth, bool clearColor)
+			{
+				context.OutputMerger.SetRenderTargets(depth.stencilView, color.renderView);
+				if (clearDepth)
+					context.ClearDepthStencilView(depth.stencilView, DepthStencilClearFlags.Depth, 1.0f, 0);
+				if (clearColor)
+					context.ClearRenderTargetView(color.renderView, color.clearColour);
 			}
 		}
 		
@@ -945,8 +940,8 @@ namespace UN11
 			{
 				layoutArr = new[]
 				{
-					new InputElement("POSITION", 0, Format.R32G32B32A32_Float, 0, 0),
-					new InputElement("TEXCOORD", 0, Format.R32G32_Float, 16, 0),
+					new InputElement("POSITION", 0, Format.R32G32B32A32_Float, 0, 2),
+					new InputElement("TEXCOORD", 0, Format.R32G32_Float, 16, 2),
 				};
 				
 				size = Utilities.SizeOf<VertexOver>();
@@ -2085,7 +2080,7 @@ namespace UN11
 				eyeBuffer.update(context);
 				eyeBuffer.applyVStage(context);
 				
-				context.InputAssembler.SetVertexBuffers(0, overVBuffBinding);
+				context.InputAssembler.SetVertexBuffers(2, overVBuffBinding);
 				context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip; // this needs to be put in other places, because I probably assume it's TriangleList everwhere
 				
 				vp.apply(context);
@@ -2452,6 +2447,10 @@ namespace UN11
 			
 			
 			// splatters
+			
+			/// <summary>
+			/// ray should be normalised, use the zFar for distance to splat deal
+			/// </summary>
 			private static Decal splatSquarePCT(VertexPCT[] vertexArray, short[] indexArray, int indexOffset, int triCount, ref Matrix splatMat, ref Ray ray, float nrmCoof, TransArr transArr, Texness texness)
 			{
 				List<VertexPCT> decalVerticies = new List<VertexPCT>();
@@ -2990,8 +2989,7 @@ namespace UN11
 				}
 			}
 			
-			// FIXME: there is alot wrong with this method
-			// (need the model to expose some applyPrims or something method, so we can get back the VI buffers after the over has butchered them)
+			// seems to work (atleast to some extent)
 			public void drawSideOver(DeviceContext context, DrawData ddat)
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
@@ -3011,15 +3009,16 @@ namespace UN11
 				}
 			}
 			
-			// FIXME: there is alot wrong with this method too
+			// seems to work (atleast to some extent)
 			public void drawToSide(DeviceContext context, DrawData ddat, Model mdl)
 			{
 				SectionPrettyness prettyness = prettynessess[(int)ddat.sceneType];
 				
-				ddat.sideRenderViewPair.applyRender(context, true);
-				ddat.targetRenderViewPair.applyStencil(context, false);
+				RenderViewPair.apply(context, ddat.targetRenderViewPair, ddat.sideRenderViewPair, false, true);
+				
 				ddat.targetTex.applyShaderResource(context, (int)TextureSlot.targetTex);
 				ddat.pddat.uneleven.depthStencilStates.zReadWrite.apply(context);
+				ddat.pddat.uneleven.rasterizerStates.ccFrontcull.apply(context);
 				
 				drawDraw(context, ddat, mdl);
 			}
@@ -9630,9 +9629,12 @@ namespace UN11
 			tent.or.offset.Y = 1;
 			tent.mdl.changeAnim(uneleven.anims["tree_spin"]);
 			
+			// kick alpha to force side-wise rendering
+			tent.mdl.sections[0].prettynessess[(int)UN11.SceneType.Colour].prettyness.alphaMode = UN11.AlphaMode.Nice;
+			
 			// lots of trees?!
 			log("Creating a shed load of trees....");
-			int n = 10;//100;
+			int n = 100;
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
 			mmddat.batched = true;
@@ -9661,9 +9663,10 @@ namespace UN11
 				
 				tent.update(true);
 				mmddat.models.Add(tent.mdl);
-				// silky smooth if we don't do any of this madness
-				//ftdat.updateable.Add(tent);
-				//ftdat.animable.Add(tent.mdl);
+				// don't do any of this madness 
+//				tent.mdl.changeAnim(uneleven.anims["tree_spin"]);
+//				ftdat.updateable.Add(tent);
+//				ftdat.animable.Add(tent.mdl);
 			}
 			vddat.geometryDrawDatas.Add(mmddat);
 			voddat.geometryDrawDatas.Add(mmddat);
@@ -9786,7 +9789,7 @@ namespace UN11
 				
 				// splat!
 				r.Direction /= 100f;
-				UN11.Decal.simpleSplatSquare(ment.mdl, ref r, 1, 5, 5, 0, 100, decalTexness, 0, out mehMat);
+				UN11.Decal.simpleSplatSquare(ment.mdl, ref r, 1, 5, 5, 0, 100, decalTexness, (float)Math.PI + rnd.NextFloat(-0.3f, 0.3f), out mehMat);
 			};
 			
 			perform();
@@ -9999,6 +10002,12 @@ namespace UN11
 				light2ViewElem.tech = uneleven.techniques["simpleFace"];
 				light2ViewElem.colmod = new Vector4(1f, 1f, 1f, 1f);
 				
+				UN11.TexElem viewSideElem = new UN11.TexElem("viewsideelem", telem, new Rectangle(sew * 4, 0, sew, seh));
+				viewSideElem.texness.tex = uneleven.textures["view_main_side"];
+				viewSideElem.texness.useTex = true;
+				viewSideElem.tech = uneleven.techniques["simpleFace"];
+				viewSideElem.colmod = new Vector4(1f, 1f, 1f, 1f);
+				
 				// We are done resizing
 				userResized = false;
 			}
@@ -10035,6 +10044,8 @@ namespace UN11
 			torch2.eye.copyView(view.eye);
 			torch2.eye.pos.Y -= 2;
 			torch2.eye.dirNormalAt(Vector3.Zero + vOffset);
+			//torch.lightEnabled = false;
+			//torch2.lightEnabled = false;
 			
 			// REAL STUFF
 			
