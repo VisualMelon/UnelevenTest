@@ -6146,18 +6146,52 @@ namespace UN11
 				
 				mdl.update(ref trans, forceUpdate);
 			}
+			
+			// statics
+			public static ModelEntity getTaped(IEnumerable<ModelEntity> ents, Ray r, out float dist)
+			{
+				float bestDist = -1;
+				ModelEntity best = null;
+				
+				foreach (ModelEntity ent in ents)
+				{
+					float temp;
+					if (ent.mdl.collides(r, out temp))
+					{
+						if (best == null || temp < bestDist)
+						{
+							best = ent;
+							bestDist = temp;
+						}
+					}
+				}
+				
+				dist = bestDist;
+				return best;
+			}
+		}
+		
+		public class ModelEntityList : List<ModelEntity>
+		{
 		}
 		
 		public class ManyModelDrawData : GeometryDrawData
 		{
 			public Model mdl;
-			public ModelList models = new ModelList();
+			public ModelList models;
 			public bool useOwnSections = true; // if you set this to false, you probably want to be batching
 			public bool batched = false;
 			
 			public ManyModelDrawData(Model mdlN)
 			{
 				mdl = mdlN;
+				models = new ModelList();
+			}
+			
+			public ManyModelDrawData(Model mdlN, ModelList modelsN)
+			{
+				mdl = mdlN;
+				models = modelsN;
 			}
 			
 			public void drawGeometry(DeviceContext context, UN11.DrawData ddat)
@@ -9489,6 +9523,8 @@ namespace UN11
 		UN11.ManyModelDrawData mmddat;
 		UN11.ManySpriteDrawData msddat;
 		
+		UN11.ModelEntityList treeEntities;
+		
 		PointSpriteThings psts;
 		List<SpinnyLightThing> slts;
 		
@@ -9634,6 +9670,7 @@ namespace UN11
 			
 			// lots of trees?!
 			log("Creating a shed load of trees....");
+			treeEntities = new UN11.ModelEntityList();
 			int n = 100;
 			mmddat = new UN11.ManyModelDrawData(uneleven.models["tree0"]);
 			mmddat.useOwnSections = false;
@@ -9663,6 +9700,7 @@ namespace UN11
 				
 				tent.update(true);
 				mmddat.models.Add(tent.mdl);
+				treeEntities.Add(tent);
 				// don't do any of this madness 
 //				tent.mdl.changeAnim(uneleven.anims["tree_spin"]);
 //				ftdat.updateable.Add(tent);
@@ -9787,7 +9825,15 @@ namespace UN11
 				lines.push(r, new Color4(1f, 1f, 0f, 1f));
 				lines.updateResize(device, context);
 				
-				// splat!
+				float mehDist;
+				UN11.ModelEntity ent = UN11.ModelEntity.getTaped(treeEntities, r, out mehDist);
+				if (ent != null)
+				{
+					ent.or.offset.Y += 1;
+					ent.update(true);
+				}
+				
+				// splat! TODO: consider changing how splat takes the zFar/Near (new set of simpleSplat methods??), or make it normalise the direction for us
 				r.Direction /= 100f;
 				UN11.Decal.simpleSplatSquare(ment.mdl, ref r, 1, 5, 5, 0, 100, decalTexness, (float)Math.PI + rnd.NextFloat(-0.3f, 0.3f), out mehMat);
 			};
